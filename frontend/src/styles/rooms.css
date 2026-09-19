@@ -1,0 +1,305 @@
+.rooms-page {
+    min-height: 100vh;
+    background: #0b0d12;
+    color: #f5f7fa;
+    padding: 30px;
+}
+
+
+.rooms-header {
+    max-width: 1100px;
+    margin: 0 auto 35px;
+}
+
+
+.back-button {
+    border: none;
+    background: transparent;
+    color: #818cf8;
+    cursor: pointer;
+    font-size: 13px;
+    margin-bottom: 25px;
+}
+
+
+.rooms-header h1 {
+    margin: 0;
+    font-size: 30px;
+}
+
+
+.rooms-header p {
+    color: #747c8c;
+    margin-top: 8px;
+}
+
+
+.rooms-content {
+    max-width: 1100px;
+    margin: auto;
+}
+
+
+.create-room-card {
+    background: #11141b;
+    border: 1px solid #252936;
+    border-radius: 12px;
+    padding: 25px;
+    margin-bottom: 35px;
+}
+
+
+.card-title {
+    display: flex;
+    align-items: center;
+    gap: 14px;
+    margin-bottom: 25px;
+}
+
+
+.card-icon {
+    width: 42px;
+    height: 42px;
+    background: #20243a;
+    color: #818cf8;
+    border-radius: 9px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 22px;
+}
+
+
+.card-title h2 {
+    margin: 0;
+    font-size: 18px;
+}
+
+
+.card-title p {
+    margin: 5px 0 0;
+    color: #737b8c;
+    font-size: 12px;
+}
+
+
+.room-form {
+    display: grid;
+    grid-template-columns: 1fr 220px auto;
+    gap: 15px;
+    align-items: end;
+}
+
+
+.form-group {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+}
+
+
+.form-group label {
+    font-size: 12px;
+    color: #9299a8;
+}
+
+
+.form-group input,
+.form-group select {
+    height: 42px;
+    background: #0c0f14;
+    border: 1px solid #2a2e39;
+    border-radius: 7px;
+    color: white;
+    padding: 0 12px;
+    outline: none;
+}
+
+
+.form-group input:focus,
+.form-group select:focus {
+    border-color: #6366f1;
+}
+
+
+.create-button {
+    height: 42px;
+    border: none;
+    background: #6366f1;
+    color: white;
+    padding: 0 20px;
+    border-radius: 7px;
+    cursor: pointer;
+    font-weight: 600;
+}
+
+
+.create-button:hover {
+    background: #5558e8;
+}
+
+
+.create-button:disabled {
+    opacity: 0.6;
+    cursor: not-allowed;
+}
+
+
+.room-error {
+    color: #f87171;
+    font-size: 12px;
+    margin: 15px 0 0;
+}
+
+
+.rooms-section-title {
+    margin-bottom: 18px;
+}
+
+
+.rooms-section-title h2 {
+    margin: 0;
+    font-size: 19px;
+}
+
+
+.rooms-section-title p {
+    margin: 5px 0;
+    color: #737b8c;
+    font-size: 12px;
+}
+
+
+.rooms-grid {
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    gap: 16px;
+}
+
+
+.room-card {
+    background: #11141b;
+    border: 1px solid #252936;
+    border-radius: 11px;
+    padding: 20px;
+}
+
+
+.room-card-top {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+}
+
+
+.room-language {
+    color: #818cf8;
+    font-size: 12px;
+    font-weight: 600;
+}
+
+
+.room-status {
+    padding: 4px 8px;
+    border-radius: 20px;
+    font-size: 10px;
+    text-transform: capitalize;
+}
+
+
+.room-status.waiting {
+    background: #2d291c;
+    color: #facc15;
+}
+
+
+.room-status.active {
+    background: #172d23;
+    color: #4ade80;
+}
+
+
+.room-status.completed {
+    background: #252830;
+    color: #9ca3af;
+}
+
+
+.room-card h3 {
+    margin: 18px 0 8px;
+    font-size: 16px;
+}
+
+
+.room-id {
+    color: #6f7786;
+    font-size: 10px;
+    word-break: break-all;
+}
+
+
+.join-button {
+    width: 100%;
+    height: 38px;
+    margin-top: 15px;
+    background: #191d27;
+    border: 1px solid #2b3040;
+    color: #aeb5c3;
+    border-radius: 7px;
+    cursor: pointer;
+}
+
+
+.join-button:hover {
+    background: #222737;
+    color: white;
+}
+
+
+.rooms-empty {
+    border: 1px dashed #2a2e39;
+    border-radius: 12px;
+    padding: 50px 20px;
+    text-align: center;
+    color: #737b8c;
+}
+
+
+.rooms-empty-icon {
+    font-size: 32px;
+    margin-bottom: 10px;
+}
+
+
+.rooms-empty h3 {
+    color: white;
+    margin: 0 0 7px;
+}
+
+
+.rooms-empty p {
+    margin: 0;
+    font-size: 12px;
+}
+
+
+@media (max-width: 850px) {
+
+    .room-form {
+        grid-template-columns: 1fr;
+    }
+
+    .rooms-grid {
+        grid-template-columns: 1fr;
+    }
+
+}
+
+
+@media (max-width: 600px) {
+
+    .rooms-page {
+        padding: 20px;
+    }
+
+}
