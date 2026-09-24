@@ -1,0 +1,319 @@
+/* =========================================================
+   CODECOLLAB CHAT — REPLY / COPY / DELETE
+   ========================================================= */
+
+.chat-message-bubble-wrap {
+    position: relative;
+    display: flex;
+    flex-direction: column;
+    align-items: flex-start;
+    max-width: 100%;
+}
+
+.chat-message.own .chat-message-bubble-wrap {
+    align-items: flex-end;
+}
+
+.chat-message-actions {
+    display: flex;
+    align-items: center;
+    gap: 3px;
+    margin-top: 4px;
+    opacity: 0;
+    transform: translateY(-2px);
+    pointer-events: none;
+    transition: opacity 0.15s ease, transform 0.15s ease;
+}
+
+.chat-message:hover .chat-message-actions,
+.chat-message-actions:focus-within {
+    opacity: 1;
+    transform: translateY(0);
+    pointer-events: auto;
+}
+
+.chat-message-actions button {
+    width: 25px;
+    height: 23px;
+    padding: 0;
+    border: 1px solid #30374a;
+    border-radius: 7px;
+    background: #151a25;
+    color: #9da6bb;
+    font-size: 11px;
+    cursor: pointer;
+    transition: all 0.15s ease;
+}
+
+.chat-message-actions button:hover {
+    border-color: #6268d8;
+    background: #242a3b;
+    color: #ffffff;
+}
+
+.chat-message-actions button.delete:hover {
+    border-color: #9d4b5b;
+    background: #3a2029;
+    color: #ff9ba9;
+}
+
+.chat-reply-preview {
+    width: 100%;
+    max-width: 260px;
+    margin-bottom: 4px;
+    padding: 6px 9px;
+    box-sizing: border-box;
+    border-left: 3px solid #6366f1;
+    border-radius: 6px;
+    background: rgba(99, 102, 241, 0.08);
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+}
+
+.chat-reply-label {
+    color: #aeb5ff;
+    font-size: 8px;
+    font-weight: 700;
+}
+
+.chat-reply-text {
+    max-width: 100%;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    color: #778197;
+    font-size: 9px;
+}
+
+.chat-reply-composer {
+    width: 100%;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 8px;
+    margin-bottom: 7px;
+    padding: 7px 9px;
+    box-sizing: border-box;
+    border-left: 3px solid #6366f1;
+    border-radius: 7px;
+    background: #171c29;
+}
+
+.chat-reply-composer > div {
+    min-width: 0;
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+}
+
+.chat-reply-composer strong {
+    color: #aeb5ff;
+    font-size: 9px;
+    font-weight: 700;
+}
+
+.chat-reply-composer span {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    color: #7b8499;
+    font-size: 9px;
+}
+
+.chat-reply-composer > button {
+    width: 22px;
+    height: 22px;
+    flex: 0 0 22px;
+    border: 0;
+    border-radius: 6px;
+    background: transparent;
+    color: #7d879c;
+    font-size: 17px;
+    cursor: pointer;
+}
+
+.chat-reply-composer > button:hover {
+    background: #292f40;
+    color: #ffffff;
+}
+
+@media (max-width: 900px) {
+    .chat-message-actions {
+        opacity: 1;
+        transform: none;
+        pointer-events: auto;
+    }
+}
+
+
+/* =========================================================
+   FINAL WHATSAPP-STYLE REPLY LAYOUT FIX
+   ========================================================= */
+
+/* The original .chat-input-area is a flex ROW.
+   Use CSS Grid so the reply preview gets its own full row. */
+.chat-input-area {
+    display: grid !important;
+    grid-template-columns: minmax(0, 1fr) 38px !important;
+    grid-template-rows: auto auto !important;
+    align-items: end !important;
+    column-gap: 7px !important;
+    row-gap: 7px !important;
+    box-sizing: border-box !important;
+}
+
+/* Reply preview: FULL WIDTH ABOVE the message input */
+.chat-input-area > .chat-reply-composer {
+    grid-column: 1 / -1 !important;
+    grid-row: 1 !important;
+
+    width: 100% !important;
+    min-width: 0 !important;
+    min-height: 42px !important;
+
+    margin: 0 !important;
+    padding: 0 !important;
+
+    display: flex !important;
+    align-items: stretch !important;
+
+    border: 1px solid #30374a !important;
+    border-left: 3px solid #6366f1 !important;
+    border-radius: 8px !important;
+
+    background: linear-gradient(
+        135deg,
+        #171c27,
+        #1c2230
+    ) !important;
+
+    overflow: hidden !important;
+    box-sizing: border-box !important;
+}
+
+/* Reply text section */
+.chat-input-area > .chat-reply-composer > div {
+    flex: 1 1 auto !important;
+    min-width: 0 !important;
+
+    display: flex !important;
+    flex-direction: column !important;
+    justify-content: center !important;
+
+    gap: 2px !important;
+    padding: 6px 9px !important;
+}
+
+/* Replying to... */
+.chat-input-area > .chat-reply-composer strong {
+    display: block !important;
+
+    color: #aeb5ff !important;
+    font-size: 9px !important;
+    font-weight: 700 !important;
+    line-height: 1.2 !important;
+
+    white-space: nowrap !important;
+    overflow: hidden !important;
+    text-overflow: ellipsis !important;
+}
+
+/* Original message */
+.chat-input-area > .chat-reply-composer span {
+    display: block !important;
+
+    color: #8993a8 !important;
+    font-size: 9px !important;
+    line-height: 1.2 !important;
+
+    white-space: nowrap !important;
+    overflow: hidden !important;
+    text-overflow: ellipsis !important;
+}
+
+/* X cancel button */
+.chat-input-area > .chat-reply-composer > button {
+    width: 32px !important;
+    min-width: 32px !important;
+    height: auto !important;
+
+    display: flex !important;
+    align-items: center !important;
+    justify-content: center !important;
+
+    margin: 0 !important;
+    padding: 0 !important;
+
+    border: 0 !important;
+    border-left: 1px solid #2b3242 !important;
+    border-radius: 0 !important;
+
+    background: transparent !important;
+    color: #747e93 !important;
+
+    font-size: 17px !important;
+    cursor: pointer !important;
+}
+
+.chat-input-area > .chat-reply-composer > button:hover {
+    background: #252b3a !important;
+    color: #ffffff !important;
+}
+
+/* Message composer row */
+.chat-input-area > .chat-composer {
+    grid-column: 1 !important;
+    grid-row: 2 !important;
+
+    width: 100% !important;
+    min-width: 0 !important;
+}
+
+/* Send button stays beside the textarea */
+.chat-input-area > .chat-send-button {
+    grid-column: 2 !important;
+    grid-row: 2 !important;
+    align-self: end !important;
+}
+
+/* Reply preview inside an already-sent message */
+.chat-reply-preview {
+    width: calc(100% - 4px) !important;
+    max-width: 260px !important;
+
+    margin: 4px 2px 5px !important;
+    padding: 6px 8px !important;
+
+    box-sizing: border-box !important;
+
+    border-left: 3px solid #6366f1 !important;
+    border-radius: 6px !important;
+
+    background: rgba(99, 102, 241, 0.09) !important;
+
+    display: flex !important;
+    flex-direction: column !important;
+    gap: 2px !important;
+}
+
+.chat-reply-label {
+    color: #aeb5ff !important;
+    font-size: 8px !important;
+    font-weight: 700 !important;
+}
+
+.chat-reply-text {
+    color: #7f899e !important;
+    font-size: 9px !important;
+
+    white-space: nowrap !important;
+    overflow: hidden !important;
+    text-overflow: ellipsis !important;
+}
+
+@media (max-width: 900px) {
+    .chat-input-area {
+        grid-template-columns: minmax(0, 1fr) 36px !important;
+    }
+}

@@ -3,6 +3,9 @@ import {
     useRef,
     useState,
 } from "react";
+import type {
+    KeyboardEvent,
+} from "react";
 
 import {
     useNavigate,
@@ -22,6 +25,8 @@ import api from "../api/axios";
 import { useAuth } from "../context/AuthContext";
 
 import "../styles/coding-room.css";
+import "../styles/chat-reactions.css";
+import "../styles/chat-message-actions.css";
 
 interface Room {
     _id: string;
@@ -34,6 +39,7 @@ interface Room {
         | "completed";
     owner: string;
     participants: string[];
+    code?: string;
     createdAt: string;
 }
 
@@ -68,6 +74,34 @@ interface TestCasesResponse {
     failed: number;
     results: TestCaseResult[];
     message?: string;
+}
+
+interface ChatReaction {
+    emoji: string;
+    userId: string;
+    userName: string;
+}
+
+interface ChatReply {
+    messageId: string;
+    userId: string;
+    userName: string;
+    message: string;
+}
+
+interface ChatMessage {
+    id: string;
+    userId: string;
+    userName: string;
+    message: string;
+    timestamp: string;
+    reactions?: ChatReaction[];
+    replyTo?: ChatReply;
+}
+
+interface RoomParticipant {
+    userId: string;
+    userName: string;
 }
 
 type OutputTab =
@@ -106,6 +140,49 @@ int main() {
 
     const [socket, setSocket] =
         useState<Socket | null>(null);
+
+    const [participants, setParticipants] =
+        useState<RoomParticipant[]>([]);
+
+    const [chatMessages, setChatMessages] =
+        useState<ChatMessage[]>([]);
+
+    const [chatInput, setChatInput] =
+        useState("");
+
+    const [replyingTo, setReplyingTo] =
+        useState<ChatMessage | null>(null);
+
+    const [copiedMessageId, setCopiedMessageId] =
+        useState<string | null>(null);
+
+    const [chatEmojiPickerOpen, setChatEmojiPickerOpen] =
+        useState(false);
+
+    const chatInputRef =
+        useRef<HTMLTextAreaElement | null>(null);
+
+    const chatMessageEmojis = [
+        "😀", "😂", "😍", "🥰", "😎", "🤔",
+        "😢", "😡", "😮", "👍", "👎", "👏",
+        "🙌", "🙏", "🔥", "❤️", "💯", "🎉",
+        "🚀", "💡", "🤝", "💪", "✨", "😄",
+    ];
+
+    const [reactionPickerMessageId, setReactionPickerMessageId] =
+        useState<string | null>(null);
+
+    const chatReactionEmojis = [
+        "👍",
+        "❤️",
+        "😂",
+        "🔥",
+        "👏",
+        "😮",
+    ];
+
+    const chatMessagesRef =
+        useRef<HTMLDivElement | null>(null);
 
     const editorRef =
         useRef<Parameters<OnMount>[0] | null>(
@@ -177,33 +254,158 @@ int main() {
         useState(false);
 
     // =========================
-    // FETCH ROOM
+    // JOIN + FETCH ROOM + CHAT HISTORY
     // =========================
 
     useEffect(() => {
-        const fetchRoom = async () => {
+        if (!roomId || !user) {
+            return;
+        }
+
+        let cancelled = false;
+
+        const initializeRoom = async () => {
             try {
-                const response =
+                // First register the current user as a room participant.
+                // This is important when someone opens a shared room URL
+                // directly instead of clicking the Join button.
+                await api.post(
+                    `/rooms/${roomId}/join`
+                );
+
+                if (cancelled) {
+                    return;
+                }
+
+                // Now fetch the room after the user has joined.
+                const roomResponse =
                     await api.get(
                         `/rooms/${roomId}`
                     );
 
-                setRoom(
-                    response.data.room
-                );
+                if (cancelled) {
+                    return;
+                }
+
+                const loadedRoom =
+                    roomResponse.data.room;
+
+                setRoom(loadedRoom);
+
+                if (loadedRoom.code) {
+                    setCode(loadedRoom.code);
+                }
+
+                // Load persistent chat only after the join request succeeds.
+                const chatResponse =
+                    await api.get(
+                        `/rooms/${roomId}/messages`
+                    );
+
+                if (cancelled) {
+                    return;
+                }
+
+                const messages: ChatMessage[] =
+                    chatResponse.data.messages || [];
+
+                setChatMessages((previous) => {
+                    const messagesById = new Map<
+                        string,
+                        ChatMessage
+                    >();
+
+                    // Keep any real-time messages that may have arrived
+                    // while the history request was running.
+                    previous.forEach((message) => {
+                        messagesById.set(
+                            message.id,
+                            message
+                        );
+                    });
+
+                    messages.forEach((message) => {
+                        messagesById.set(
+                            message.id,
+                            message
+                        );
+                    });
+
+                    return Array.from(
+                        messagesById.values()
+                    ).sort(
+                        (a, b) =>
+                            new Date(
+                                a.timestamp
+                            ).getTime() -
+                            new Date(
+                                b.timestamp
+                            ).getTime()
+                    );
+                });
             } catch (error: any) {
-                setError(
-                    error.response?.data
-                        ?.message ||
-                        "Failed to load room"
+                console.error(
+                    "Failed to initialize room:",
+                    error
                 );
+
+                if (!cancelled) {
+                    setError(
+                        error.response?.data
+                            ?.message ||
+                        "Failed to load room"
+                    );
+                }
             } finally {
-                setLoading(false);
+                if (!cancelled) {
+                    setLoading(false);
+                }
             }
         };
 
-        fetchRoom();
-    }, [roomId]);
+        initializeRoom();
+
+        return () => {
+            cancelled = true;
+        };
+    }, [roomId, user]);
+
+    // =========================
+    // PERSIST CODE
+    // =========================
+
+    useEffect(() => {
+        if (!roomId || !room) {
+            return;
+        }
+
+        const timeoutId = window.setTimeout(
+            async () => {
+                try {
+                    await api.put(
+                        `/rooms/${roomId}/code`,
+                        {
+                            code,
+                        }
+                    );
+                } catch (error) {
+                    console.error(
+                        "Failed to save room code:",
+                        error
+                    );
+                }
+            },
+            800
+        );
+
+        return () => {
+            window.clearTimeout(timeoutId);
+        };
+    }, [
+        code,
+        roomId,
+        room,
+    ]);
 
     // =========================
     // SOCKET
@@ -216,6 +418,13 @@ int main() {
         ) {
             return;
         }
+
+        setParticipants([
+            {
+                userId: user.id,
+                userName: user.name,
+            },
+        ]);
 
         const newSocket = io(
             "http://localhost:5000"
@@ -263,6 +472,85 @@ int main() {
             (data) => {
                 console.log(
                     `${data.userName} left the room`
+                );
+            }
+        );
+
+        newSocket.on(
+            "room-participants",
+            (data: RoomParticipant[]) => {
+                setParticipants(
+                    Array.isArray(data)
+                        ? data
+                        : []
+                );
+            }
+        );
+
+        newSocket.on(
+            "chat-message",
+            (data: ChatMessage) => {
+                setChatMessages((previous) => {
+                    if (
+                        previous.some(
+                            (message) =>
+                                message.id ===
+                                data.id
+                        )
+                    ) {
+                        return previous;
+                    }
+
+                    return [
+                        ...previous,
+                        data,
+                    ].sort(
+                        (a, b) =>
+                            new Date(
+                                a.timestamp
+                            ).getTime() -
+                            new Date(
+                                b.timestamp
+                            ).getTime()
+                    );
+                });
+            }
+        );
+
+        newSocket.on(
+            "chat-reactions-updated",
+            (data: {
+                messageId: string;
+                reactions: ChatReaction[];
+            }) => {
+                setChatMessages((previous) =>
+                    previous.map((message) =>
+                        message.id === data.messageId
+                            ? {
+                                  ...message,
+                                  reactions:
+                                      data.reactions,
+                              }
+                            : message
+                    )
+                );
+            }
+        );
+
+        newSocket.on(
+            "chat-message-deleted",
+            (data: { messageId: string }) => {
+                setChatMessages((previous) =>
+                    previous.filter(
+                        (message) =>
+                            message.id !== data.messageId
+                    )
+                );
+
+                setReplyingTo((current) =>
+                    current?.id === data.messageId
+                        ? null
+                        : current
                 );
             }
         );
@@ -571,6 +859,192 @@ int main() {
     };
 
     // =========================
+    // CHAT
+    // =========================
+
+    const handleChatEmojiSelect = (emoji: string) => {
+        const textarea = chatInputRef.current;
+
+        if (!textarea) {
+            setChatInput((previous) => previous + emoji);
+            return;
+        }
+
+        const start = textarea.selectionStart ?? chatInput.length;
+        const end = textarea.selectionEnd ?? chatInput.length;
+
+        const nextValue =
+            chatInput.slice(0, start) +
+            emoji +
+            chatInput.slice(end);
+
+        setChatInput(nextValue);
+        setChatEmojiPickerOpen(false);
+
+        requestAnimationFrame(() => {
+            textarea.focus();
+
+            const nextCursor = start + emoji.length;
+            textarea.setSelectionRange(
+                nextCursor,
+                nextCursor
+            );
+        });
+    };
+
+    const handleSendChatMessage = () => {
+        const message = chatInput.trim();
+
+        if (!message || !socket || !roomId || !user) {
+            return;
+        }
+
+        socket.emit(
+            "send-chat-message",
+            {
+                roomId,
+                userId: user.id,
+                userName: user.name,
+                message,
+                replyTo: replyingTo
+                    ? {
+                          messageId: replyingTo.id,
+                          userId: replyingTo.userId,
+                          userName: replyingTo.userName,
+                          message: replyingTo.message,
+                      }
+                    : undefined,
+            }
+        );
+
+        setChatInput("");
+        setReplyingTo(null);
+        setChatEmojiPickerOpen(false);
+    };
+
+    const handleReplyToMessage = (
+        chatMessage: ChatMessage
+    ) => {
+        setReplyingTo(chatMessage);
+        setChatEmojiPickerOpen(false);
+
+        requestAnimationFrame(() => {
+            chatInputRef.current?.focus();
+        });
+    };
+
+    const handleCopyMessage = async (
+        chatMessage: ChatMessage
+    ) => {
+        try {
+            await navigator.clipboard.writeText(
+                chatMessage.message
+            );
+
+            setCopiedMessageId(chatMessage.id);
+
+            window.setTimeout(() => {
+                setCopiedMessageId((current) =>
+                    current === chatMessage.id
+                        ? null
+                        : current
+                );
+            }, 1200);
+        } catch (error) {
+            console.error(
+                "Failed to copy chat message:",
+                error
+            );
+        }
+    };
+
+    const handleDeleteChatMessage = (
+        messageId: string
+    ) => {
+        if (!socket || !roomId || !user) {
+            return;
+        }
+
+        socket.emit(
+            "delete-chat-message",
+            {
+                roomId,
+                messageId,
+                userId: user.id,
+            }
+        );
+    };
+
+    const handleChatReaction = (
+        messageId: string,
+        emoji: string
+    ) => {
+        if (
+            !socket ||
+            !roomId ||
+            !user
+        ) {
+            return;
+        }
+
+        socket.emit(
+            "toggle-chat-reaction",
+            {
+                roomId,
+                messageId,
+                userId: user.id,
+                userName: user.name,
+                emoji,
+            }
+        );
+
+        setReactionPickerMessageId(null);
+    };
+
+    const handleChatKeyDown = (
+        event: KeyboardEvent<HTMLTextAreaElement>
+    ) => {
+        if (
+            event.key === "Enter" &&
+            !event.shiftKey
+        ) {
+            event.preventDefault();
+            handleSendChatMessage();
+        }
+    };
+
+    // =========================
+    // CHAT AUTO SCROLL
+    // =========================
+
+    useEffect(() => {
+        if (chatMessagesRef.current) {
+            chatMessagesRef.current.scrollTop =
+                chatMessagesRef.current.scrollHeight;
+        }
+    }, [chatMessages]);
+
+    // Close an open reaction picker when clicking elsewhere.
+    useEffect(() => {
+        const handleDocumentClick = () => {
+            setReactionPickerMessageId(null);
+            setChatEmojiPickerOpen(false);
+        };
+
+        document.addEventListener(
+            "click",
+            handleDocumentClick
+        );
+
+        return () => {
+            document.removeEventListener(
+                "click",
+                handleDocumentClick
+            );
+        };
+    }, []);
+
+    // =========================
     // CLEAR TERMINAL
     // =========================
 
@@ -626,7 +1100,7 @@ int main() {
     
     useEffect(() => {
     const handleKeyboard = (
-        event: KeyboardEvent
+        event: globalThis.KeyboardEvent
     ) => {
         if (
             (event.ctrlKey ||
@@ -1327,7 +1801,7 @@ int main() {
 
                 </main>
 
-                {/* PARTICIPANTS */}
+                {/* PARTICIPANTS + CHAT */}
 
                 <aside className="participants-panel">
 
@@ -1338,40 +1812,399 @@ int main() {
                         </span>
 
                         <span className="participant-count">
-                            {
-                                room
-                                    .participants
-                                    .length
-                            }
+                            {participants.length}
                         </span>
 
                     </div>
 
-                    <div className="participant">
+                    <div className="participant-list">
 
-                        <div className="participant-avatar">
+                        {participants.length === 0 ? (
+                            <div className="chat-empty">
+                                <p>No participants</p>
+                            </div>
+                        ) : (
+                            participants.map((participant) => (
+                                <div
+                                    className="participant"
+                                    key={participant.userId}
+                                >
+                                    <div className="participant-avatar">
+                                        {participant.userName
+                                            .charAt(0)
+                                            .toUpperCase()}
+                                    </div>
 
-                            {user?.name
-                                ?.charAt(
-                                    0
-                                )
-                                .toUpperCase()}
+                                    <div>
+                                        <p>
+                                            {participant.userName}
+                                        </p>
 
-                        </div>
+                                        <span>
+                                            {participant.userId === user?.id
+                                                ? "You"
+                                                : "Online"}
+                                        </span>
+                                    </div>
 
-                        <div>
+                                    <div className="online-dot" />
+                                </div>
+                            ))
+                        )}
 
-                            <p>
-                                {user?.name}
-                            </p>
+                    </div>
 
+                    <div className="room-chat">
+
+                        <div className="chat-header">
                             <span>
-                                You
+                                CHAT
                             </span>
 
+                            <span className="chat-count">
+                                {chatMessages.length}
+                            </span>
                         </div>
 
-                        <div className="online-dot" />
+                        <div
+                            className="chat-messages"
+                            ref={chatMessagesRef}
+                        >
+                            {chatMessages.length === 0 ? (
+                                <div className="chat-empty">
+                                    <div className="chat-empty-icon">
+                                        💬
+                                    </div>
+
+                                    <p>
+                                        No messages yet
+                                    </p>
+
+                                    <span>
+                                        Start the conversation.
+                                    </span>
+                                </div>
+                            ) : (
+                                chatMessages.map((chatMessage) => (
+                                    <div
+                                        className={`chat-message ${
+                                            chatMessage.userId === user?.id
+                                                ? "own"
+                                                : ""
+                                        }`}
+                                        key={chatMessage.id}
+                                    >
+                                        <div className="chat-message-content">
+                                            <div className="chat-message-meta-box">
+                                                <div className="chat-message-avatar">
+                                                    {chatMessage.userName
+                                                        .charAt(0)
+                                                        .toUpperCase()}
+                                                </div>
+
+                                                <strong>
+                                                    {chatMessage.userId === user?.id
+                                                        ? "You"
+                                                        : chatMessage.userName}
+                                                </strong>
+
+                                                <span>
+                                                    {new Date(
+                                                        chatMessage.timestamp
+                                                    ).toLocaleTimeString([], {
+                                                        hour: "2-digit",
+                                                        minute: "2-digit",
+                                                    })}
+                                                </span>
+                                            </div>
+
+                                            <div className="chat-message-bubble-wrap">
+                                            {chatMessage.replyTo && (
+                                                <div className="chat-reply-preview">
+                                                    <span className="chat-reply-label">
+                                                        ↩ Replying to {chatMessage.replyTo.userId === user?.id ? "You" : chatMessage.replyTo.userName}
+                                                    </span>
+                                                    <span className="chat-reply-text">
+                                                        {chatMessage.replyTo.message}
+                                                    </span>
+                                                </div>
+                                            )}
+
+                                            <div className="chat-message-text">
+                                                {chatMessage.message}
+                                            </div>
+
+                                            <div className="chat-message-actions">
+                                                <button
+                                                    type="button"
+                                                    onClick={() =>
+                                                        handleReplyToMessage(chatMessage)
+                                                    }
+                                                    title="Reply"
+                                                >
+                                                    ↩
+                                                </button>
+
+                                                <button
+                                                    type="button"
+                                                    onClick={() =>
+                                                        handleCopyMessage(chatMessage)
+                                                    }
+                                                    title="Copy"
+                                                >
+                                                    {copiedMessageId === chatMessage.id
+                                                        ? "✓"
+                                                        : "⧉"}
+                                                </button>
+
+                                                {chatMessage.userId === user?.id && (
+                                                    <button
+                                                        type="button"
+                                                        className="delete"
+                                                        onClick={() =>
+                                                            handleDeleteChatMessage(
+                                                                chatMessage.id
+                                                            )
+                                                        }
+                                                        title="Delete"
+                                                    >
+                                                        🗑
+                                                    </button>
+                                                )}
+                                            </div>
+
+                                            <div className="chat-reaction-area">
+                                                <button
+                                                    type="button"
+                                                    className="chat-reaction-trigger"
+                                                    onClick={(event) => {
+                                                        event.stopPropagation();
+
+                                                        setReactionPickerMessageId(
+                                                            (current) =>
+                                                                current ===
+                                                                chatMessage.id
+                                                                    ? null
+                                                                    : chatMessage.id
+                                                        );
+                                                    }}
+                                                    title="Add reaction"
+                                                >
+                                                    😊
+                                                </button>
+
+                                                {reactionPickerMessageId ===
+                                                    chatMessage.id && (
+                                                    <div
+                                                        className="chat-reaction-picker"
+                                                        onClick={(event) =>
+                                                            event.stopPropagation()
+                                                        }
+                                                    >
+                                                        {chatReactionEmojis.map(
+                                                            (emoji) => (
+                                                                <button
+                                                                    type="button"
+                                                                    key={emoji}
+                                                                    className="chat-reaction-option"
+                                                                    onClick={() =>
+                                                                        handleChatReaction(
+                                                                            chatMessage.id,
+                                                                            emoji
+                                                                        )
+                                                                    }
+                                                                >
+                                                                    {emoji}
+                                                                </button>
+                                                            )
+                                                        )}
+                                                    </div>
+                                                )}
+                                            </div>
+                                        </div>
+
+                                        {chatMessage.reactions &&
+                                            chatMessage.reactions.length > 0 && (
+                                                <div className="chat-reaction-list">
+                                                    {Object.entries(
+                                                        chatMessage.reactions.reduce(
+                                                            (
+                                                                counts: Record<
+                                                                    string,
+                                                                    {
+                                                                        count: number;
+                                                                        reactedByMe: boolean;
+                                                                    }
+                                                                >,
+                                                                reaction
+                                                            ) => {
+                                                                if (
+                                                                    !counts[
+                                                                        reaction
+                                                                            .emoji
+                                                                    ]
+                                                                ) {
+                                                                    counts[
+                                                                        reaction
+                                                                            .emoji
+                                                                    ] = {
+                                                                        count: 0,
+                                                                        reactedByMe:
+                                                                            false,
+                                                                    };
+                                                                }
+
+                                                                counts[
+                                                                    reaction
+                                                                        .emoji
+                                                                ].count += 1;
+
+                                                                if (
+                                                                    reaction.userId ===
+                                                                    user?.id
+                                                                ) {
+                                                                    counts[
+                                                                        reaction
+                                                                            .emoji
+                                                                    ].reactedByMe =
+                                                                        true;
+                                                                }
+
+                                                                return counts;
+                                                            },
+                                                            {}
+                                                        )
+                                                    ).map(
+                                                        ([
+                                                            emoji,
+                                                            reactionInfo,
+                                                        ]) => (
+                                                            <button
+                                                                type="button"
+                                                                key={emoji}
+                                                                className={`chat-reaction-chip ${
+                                                                    reactionInfo.reactedByMe
+                                                                        ? "active"
+                                                                        : ""
+                                                                }`}
+                                                                onClick={() =>
+                                                                    handleChatReaction(
+                                                                        chatMessage.id,
+                                                                        emoji
+                                                                    )
+                                                                }
+                                                                title="Toggle reaction"
+                                                            >
+                                                                <span>
+                                                                    {
+                                                                        emoji
+                                                                    }
+                                                                </span>
+
+                                                                <span>
+                                                                    {
+                                                                        reactionInfo.count
+                                                                    }
+                                                                </span>
+                                                            </button>
+                                                        )
+                                                    )}
+                                                </div>
+                                            )}
+                                        </div>
+                                    </div>
+                                ))
+                            )}
+                        </div>
+
+                        <div className="chat-input-area">
+                            {replyingTo && (
+                                <div className="chat-reply-composer">
+                                    <div>
+                                        <strong>
+                                            ↩ Replying to {replyingTo.userId === user?.id ? "You" : replyingTo.userName}
+                                        </strong>
+                                        <span>
+                                            {replyingTo.message}
+                                        </span>
+                                    </div>
+
+                                    <button
+                                        type="button"
+                                        onClick={() =>
+                                            setReplyingTo(null)
+                                        }
+                                        title="Cancel reply"
+                                    >
+                                        ×
+                                    </button>
+                                </div>
+                            )}
+
+                            <div className="chat-composer">
+                                <textarea
+                                    ref={chatInputRef}
+                                    value={chatInput}
+                                    onChange={(event) =>
+                                        setChatInput(event.target.value)
+                                    }
+                                    onKeyDown={handleChatKeyDown}
+                                    placeholder="Type a message..."
+                                    maxLength={2000}
+                                    rows={2}
+                                />
+
+                                <button
+                                    type="button"
+                                    className={`chat-emoji-button ${
+                                        chatEmojiPickerOpen ? "active" : ""
+                                    }`}
+                                    onClick={(event) => {
+                                        event.stopPropagation();
+                                        setReactionPickerMessageId(null);
+                                        setChatEmojiPickerOpen((previous) => !previous);
+                                    }}
+                                    title="Add emoji"
+                                >
+                                    😊
+                                </button>
+
+                                {chatEmojiPickerOpen && (
+                                    <div
+                                        className="chat-composer-emoji-picker"
+                                        onClick={(event) =>
+                                            event.stopPropagation()
+                                        }
+                                    >
+                                        {chatMessageEmojis.map((emoji) => (
+                                            <button
+                                                type="button"
+                                                key={emoji}
+                                                className="chat-composer-emoji"
+                                                onClick={() =>
+                                                    handleChatEmojiSelect(emoji)
+                                                }
+                                            >
+                                                {emoji}
+                                            </button>
+                                        ))}
+                                    </div>
+                                )}
+                            </div>
+
+                            <button
+                                className="chat-send-button"
+                                onClick={handleSendChatMessage}
+                                disabled={!chatInput.trim() || !socket}
+                                title="Send message"
+                            >
+                                ➤
+                            </button>
+                        </div>
+
+                        <div className="chat-hint">
+                            Press Enter to send • Shift + Enter for new line
+                        </div>
 
                     </div>
 

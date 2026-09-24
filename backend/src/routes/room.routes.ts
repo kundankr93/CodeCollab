@@ -6,12 +6,12 @@ import {
     createRoom,
     getMyRooms,
     getRoom,
+    updateRoomCode,
+    getChatMessages,
     joinRoom,
 } from "../controllers/room.controller.js";
 
-
 const router = Router();
-
 
 // Create room
 router.post(
@@ -20,14 +20,12 @@ router.post(
     createRoom
 );
 
-
 // Get my rooms
 router.get(
     "/",
     authenticate,
     getMyRooms
 );
-
 
 // Get specific room
 router.get(
@@ -36,6 +34,19 @@ router.get(
     getRoom
 );
 
+// Save room code
+router.put(
+    "/:roomId/code",
+    authenticate,
+    updateRoomCode
+);
+
+// Get persistent chat history
+router.get(
+    "/:roomId/messages",
+    authenticate,
+    getChatMessages
+);
 
 // Join room
 router.post(
@@ -43,6 +54,5 @@ router.post(
     authenticate,
     joinRoom
 );
-
 
 export default router;

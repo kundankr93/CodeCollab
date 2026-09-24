@@ -1,0 +1,405 @@
+
+/* =========================================================
+   CODECOLLAB CHAT — EMOJI REACTIONS
+   Append this AFTER your existing chat CSS.
+   ========================================================= */
+
+/* Message + reaction controls */
+.chat-message-bubble-wrap {
+    position: relative;
+
+    display: flex;
+    align-items: flex-start;
+    gap: 5px;
+
+    width: fit-content;
+    max-width: 100%;
+}
+
+.chat-message.own .chat-message-bubble-wrap {
+    flex-direction: row-reverse;
+}
+
+/* Small reaction button */
+.chat-reaction-area {
+    position: relative;
+
+    display: flex;
+    align-items: center;
+}
+
+.chat-reaction-trigger {
+    width: 24px;
+    height: 24px;
+
+    display: flex;
+    align-items: center;
+    justify-content: center;
+
+    padding: 0;
+
+    border: 1px solid #30374b;
+    border-radius: 8px;
+
+    background: #171c27;
+    color: #aeb6c8;
+
+    font-size: 12px;
+
+    cursor: pointer;
+
+    opacity: 0;
+    transform: scale(0.9);
+
+    transition:
+        opacity 0.15s ease,
+        transform 0.15s ease,
+        background 0.15s ease,
+        border-color 0.15s ease;
+}
+
+/* Show reaction button when message is hovered */
+.chat-message:hover .chat-reaction-trigger,
+.chat-reaction-trigger:focus {
+    opacity: 1;
+    transform: scale(1);
+}
+
+.chat-reaction-trigger:hover {
+    background: #252b3b;
+    border-color: #515b77;
+}
+
+/* Your reaction trigger */
+.chat-message.own .chat-reaction-trigger {
+    background: #211d3a;
+    border-color: #454080;
+}
+
+/* =========================================================
+   REACTION PICKER
+   ========================================================= */
+
+.chat-reaction-picker {
+    position: absolute;
+
+    z-index: 50;
+
+    bottom: calc(100% + 6px);
+    left: 0;
+
+    display: flex;
+    align-items: center;
+
+    gap: 2px;
+
+    padding: 5px;
+
+    border: 1px solid #363d53;
+    border-radius: 11px;
+
+    background:
+        linear-gradient(
+            135deg,
+            #171c28,
+            #11151f
+        );
+
+    box-shadow:
+        0 10px 25px rgba(0, 0, 0, 0.35);
+
+    animation:
+        reactionPickerIn 0.12s ease-out;
+}
+
+.chat-message.own .chat-reaction-picker {
+    left: auto;
+    right: 0;
+}
+
+@keyframes reactionPickerIn {
+    from {
+        opacity: 0;
+        transform: translateY(4px) scale(0.96);
+    }
+
+    to {
+        opacity: 1;
+        transform: translateY(0) scale(1);
+    }
+}
+
+/* Individual emoji */
+.chat-reaction-option {
+    width: 28px;
+    height: 28px;
+
+    display: flex;
+    align-items: center;
+    justify-content: center;
+
+    padding: 0;
+
+    border: none;
+    border-radius: 7px;
+
+    background: transparent;
+
+    font-size: 15px;
+
+    cursor: pointer;
+
+    transition:
+        background 0.12s ease,
+        transform 0.12s ease;
+}
+
+.chat-reaction-option:hover {
+    background: #292f42;
+
+    transform: scale(1.15);
+}
+
+/* =========================================================
+   REACTION CHIPS BELOW MESSAGE
+   ========================================================= */
+
+.chat-reaction-list {
+    display: flex;
+    flex-wrap: wrap;
+
+    gap: 4px;
+
+    margin-top: 5px;
+}
+
+/* Keep own reaction chips on right */
+.chat-message.own .chat-reaction-list {
+    justify-content: flex-end;
+}
+
+/* Reaction chip */
+.chat-reaction-chip {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+
+    gap: 4px;
+
+    min-width: 30px;
+    height: 22px;
+
+    padding: 2px 7px;
+
+    border: 1px solid #30374a;
+    border-radius: 999px;
+
+    background: #151a25;
+
+    color: #aeb6c8;
+
+    font-size: 11px;
+
+    cursor: pointer;
+
+    transition:
+        background 0.15s ease,
+        border-color 0.15s ease,
+        transform 0.15s ease;
+}
+
+.chat-reaction-chip:hover {
+    transform: translateY(-1px);
+
+    background: #232a3b;
+
+    border-color: #505a77;
+}
+
+/* Reaction selected by current user */
+.chat-reaction-chip.active {
+    border-color: #6560dc;
+
+    background:
+        linear-gradient(
+            135deg,
+            #302c70,
+            #38265e
+        );
+
+    color: #ffffff;
+
+    box-shadow:
+        0 3px 10px rgba(99, 102, 241, 0.16);
+}
+
+.chat-reaction-chip span:first-child {
+    font-size: 11px;
+}
+
+.chat-reaction-chip span:last-child {
+    font-size: 9px;
+
+    color: #7f889b;
+}
+
+.chat-reaction-chip.active span:last-child {
+    color: #c6c8ff;
+}
+
+/* =========================================================
+   MOBILE
+   ========================================================= */
+
+@media (max-width: 900px) {
+
+    /* On smaller screens, always show the reaction button */
+    .chat-reaction-trigger {
+        opacity: 0.75;
+        transform: scale(1);
+    }
+
+    .chat-reaction-picker {
+        max-width: calc(100vw - 40px);
+
+        flex-wrap: wrap;
+    }
+}
+
+/* =========================================================
+   CHAT COMPOSER — WHATSAPP-STYLE EMOJI PICKER
+   ========================================================= */
+
+.chat-composer {
+    position: relative;
+    flex: 1;
+    min-width: 0;
+}
+
+.chat-composer textarea {
+    width: 100%;
+    box-sizing: border-box;
+    padding-right: 42px !important;
+}
+
+.chat-emoji-button {
+    position: absolute;
+    right: 8px;
+    bottom: 8px;
+
+    width: 28px;
+    height: 28px;
+
+    display: flex;
+    align-items: center;
+    justify-content: center;
+
+    padding: 0;
+    border: 0;
+    border-radius: 8px;
+
+    background: transparent;
+    color: #aeb6c8;
+
+    font-size: 17px;
+    line-height: 1;
+
+    cursor: pointer;
+    opacity: 0.75;
+
+    transition:
+        background 0.15s ease,
+        transform 0.15s ease,
+        opacity 0.15s ease;
+}
+
+.chat-emoji-button:hover,
+.chat-emoji-button.active {
+    background: #252b3b;
+    opacity: 1;
+    transform: scale(1.06);
+}
+
+.chat-composer-emoji-picker {
+    position: absolute;
+    z-index: 100;
+
+    right: 0;
+    bottom: calc(100% + 8px);
+
+    width: 228px;
+
+    display: grid;
+    grid-template-columns: repeat(6, 1fr);
+    gap: 3px;
+
+    padding: 8px;
+
+    border: 1px solid #363d53;
+    border-radius: 13px;
+
+    background:
+        linear-gradient(
+            135deg,
+            #191e2a,
+            #10141d
+        );
+
+    box-shadow:
+        0 12px 30px rgba(0, 0, 0, 0.42);
+
+    animation: composerEmojiIn 0.13s ease-out;
+}
+
+.chat-composer-emoji {
+    width: 32px;
+    height: 32px;
+
+    display: flex;
+    align-items: center;
+    justify-content: center;
+
+    padding: 0;
+    border: 0;
+    border-radius: 8px;
+
+    background: transparent;
+
+    font-size: 19px;
+    line-height: 1;
+
+    cursor: pointer;
+
+    transition:
+        background 0.12s ease,
+        transform 0.12s ease;
+}
+
+.chat-composer-emoji:hover {
+    background: #2a3042;
+    transform: scale(1.18);
+}
+
+@keyframes composerEmojiIn {
+    from {
+        opacity: 0;
+        transform: translateY(5px) scale(0.97);
+    }
+
+    to {
+        opacity: 1;
+        transform: translateY(0) scale(1);
+    }
+}
+
+@media (max-width: 900px) {
+    .chat-composer-emoji-picker {
+        width: 204px;
+    }
+
+    .chat-composer-emoji {
+        width: 29px;
+        height: 29px;
+        font-size: 17px;
+    }
+}

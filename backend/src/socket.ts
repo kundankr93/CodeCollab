@@ -1,4 +1,7 @@
+import mongoose from "mongoose";
 import { Server, Socket } from "socket.io";
+
+import { ChatMessage } from "./models/ChatMessage.js";
 
 interface FileJoinData {
     projectId: string;
@@ -29,11 +32,105 @@ interface LeaveFileData {
     userName: string;
 }
 
+interface ChatReplyData {
+    messageId: string;
+    userId: string;
+    userName: string;
+    message: string;
+}
+
+interface ChatMessageData {
+    roomId: string;
+    userId: string;
+    userName: string;
+    message: string;
+    replyTo?: ChatReplyData;
+}
+
+interface ChatReactionData {
+    roomId: string;
+    messageId: string;
+    userId: string;
+    userName: string;
+    emoji: string;
+}
+
+const CHAT_REACTION_EMOJIS = [
+    "👍",
+    "❤️",
+    "😂",
+    "🔥",
+    "👏",
+    "😮",
+];
+
+interface RoomParticipant {
+    userId: string;
+    userName: string;
+}
+
 const getFileRoom = (
     projectId: string,
     fileId: string
 ): string => {
     return `project:${projectId}:file:${fileId}`;
+};
+
+const getRoomParticipants = async (
+    io: Server,
+    roomId: string
+): Promise<RoomParticipant[]> => {
+    const sockets = await io
+        .in(roomId)
+        .fetchSockets();
+
+    const participantMap = new Map<
+        string,
+        RoomParticipant
+    >();
+
+    for (const roomSocket of sockets) {
+        const userId = roomSocket.data.userId;
+        const userName = roomSocket.data.userName;
+
+        if (!userId) {
+            continue;
+        }
+
+        if (!participantMap.has(userId)) {
+            participantMap.set(userId, {
+                userId,
+                userName: userName || "Anonymous",
+            });
+        }
+    }
+
+    return Array.from(
+        participantMap.values()
+    );
+};
+
+const broadcastRoomParticipants = async (
+    io: Server,
+    roomId: string
+): Promise<void> => {
+    try {
+        const participants =
+            await getRoomParticipants(
+                io,
+                roomId
+            );
+
+        io.to(roomId).emit(
+            "room-participants",
+            participants
+        );
+    } catch (error) {
+        console.error(
+            "Failed to update room participants:",
+            error
+        );
+    }
 };
 
 export const initializeSocket = (
@@ -53,7 +150,7 @@ export const initializeSocket = (
 
             socket.on(
                 "join-room",
-                (data: {
+                async (data: {
                     roomId: string;
                     userId: string;
                     userName: string;
@@ -64,8 +161,44 @@ export const initializeSocket = (
                         userName,
                     } = data;
 
-                    if (!roomId) {
+                    if (
+                        !roomId ||
+                        !userId
+                    ) {
                         return;
+                    }
+
+                    // If this socket was already connected
+                    // to another coding room, clean that room
+                    // up before joining the new one.
+                    const previousRoomId =
+                        socket.data.roomId;
+
+                    if (
+                        previousRoomId &&
+                        previousRoomId !== roomId
+                    ) {
+                        socket
+                            .to(previousRoomId)
+                            .emit(
+                                "user-left",
+                                {
+                                    userId:
+                                        socket.data.userId,
+                                    userName:
+                                        socket.data.userName ||
+                                        "Anonymous",
+                                }
+                            );
+
+                        socket.leave(
+                            previousRoomId
+                        );
+
+                        await broadcastRoomParticipants(
+                            io,
+                            previousRoomId
+                        );
                     }
 
                     socket.join(roomId);
@@ -77,14 +210,24 @@ export const initializeSocket = (
                         userId;
 
                     socket.data.userName =
-                        userName;
+                        userName ||
+                        "Anonymous";
 
-                    socket.to(roomId).emit(
-                        "user-joined",
-                        {
-                            userId,
-                            userName,
-                        }
+                    socket
+                        .to(roomId)
+                        .emit(
+                            "user-joined",
+                            {
+                                userId,
+                                userName:
+                                    userName ||
+                                    "Anonymous",
+                            }
+                        );
+
+                    await broadcastRoomParticipants(
+                        io,
+                        roomId
                     );
 
                     console.log(
@@ -92,6 +235,10 @@ export const initializeSocket = (
                     );
                 }
             );
+
+            // ==========================================
+            // CODE CHANGE
+            // ==========================================
 
             socket.on(
                 "code-change",
@@ -115,35 +262,325 @@ export const initializeSocket = (
                 }
             );
 
+            // ==========================================
+            // CHAT MESSAGE
+            // ==========================================
+
+            socket.on(
+                "send-chat-message",
+                async (
+                    data: ChatMessageData
+                ) => {
+                    try {
+                        const {
+                            roomId,
+                            userId,
+                            userName,
+                            message,
+                            replyTo,
+                        } = data;
+
+                        if (
+                            !roomId ||
+                            !userId ||
+                            !userName ||
+                            !message
+                        ) {
+                            return;
+                        }
+
+                        const trimmedMessage =
+                            message.trim();
+
+                        if (!trimmedMessage) {
+                            return;
+                        }
+
+                        if (
+                            trimmedMessage.length >
+                            2000
+                        ) {
+                            return;
+                        }
+
+                        const safeReply =
+                            replyTo &&
+                            replyTo.messageId &&
+                            replyTo.userId &&
+                            replyTo.userName &&
+                            typeof replyTo.message === "string"
+                                ? {
+                                      messageId: replyTo.messageId,
+                                      userId: replyTo.userId,
+                                      userName: replyTo.userName.slice(0, 100),
+                                      message: replyTo.message.slice(0, 2000),
+                                  }
+                                : undefined;
+
+                        const savedMessage =
+                            await ChatMessage.create({
+                                roomId,
+                                userId,
+                                userName:
+                                    userName.trim(),
+                                message:
+                                    trimmedMessage,
+                                replyTo: safeReply,
+                            });
+
+                        const chatMessage = {
+                            id: savedMessage._id.toString(),
+                            userId:
+                                savedMessage.userId.toString(),
+                            userName:
+                                savedMessage.userName,
+                            message:
+                                savedMessage.message,
+                            timestamp:
+                                savedMessage.createdAt.toISOString(),
+                            reactions: [],
+                            replyTo: savedMessage.replyTo
+                                ? {
+                                      messageId: savedMessage.replyTo.messageId,
+                                      userId: savedMessage.replyTo.userId.toString(),
+                                      userName: savedMessage.replyTo.userName,
+                                      message: savedMessage.replyTo.message,
+                                  }
+                                : undefined,
+                        };
+
+                        io.to(roomId).emit(
+                            "chat-message",
+                            chatMessage
+                        );
+
+                        console.log(
+                            `${userName} sent a message in room ${roomId}`
+                        );
+                    } catch (error) {
+                        console.error(
+                            "Failed to save chat message ❌",
+                            error
+                        );
+                    }
+                }
+            );
+
+
+            // ==========================================
+            // DELETE CHAT MESSAGE
+            // ==========================================
+
+            socket.on(
+                "delete-chat-message",
+                async (data: {
+                    roomId: string;
+                    messageId: string;
+                    userId: string;
+                }) => {
+                    try {
+                        const {
+                            roomId,
+                            messageId,
+                            userId,
+                        } = data;
+
+                        if (
+                            !roomId ||
+                            !messageId ||
+                            !userId ||
+                            socket.data.userId !== userId ||
+                            socket.data.roomId !== roomId
+                        ) {
+                            return;
+                        }
+
+                        const message =
+                            await ChatMessage.findOne({
+                                _id: messageId,
+                                roomId,
+                            });
+
+                        if (!message) {
+                            return;
+                        }
+
+                        if (message.userId.toString() !== userId) {
+                            return;
+                        }
+
+                        await ChatMessage.deleteOne({
+                            _id: messageId,
+                            roomId,
+                        });
+
+                        io.to(roomId).emit(
+                            "chat-message-deleted",
+                            { messageId }
+                        );
+                    } catch (error) {
+                        console.error(
+                            "Failed to delete chat message ❌",
+                            error
+                        );
+                    }
+                }
+            );
+
+            // ==========================================
+            // CHAT REACTION
+            // ==========================================
+
+            socket.on(
+                "toggle-chat-reaction",
+                async (
+                    data: ChatReactionData
+                ) => {
+                    try {
+                        const {
+                            roomId,
+                            messageId,
+                            userId,
+                            userName,
+                            emoji,
+                        } = data;
+
+                        if (
+                            !roomId ||
+                            !messageId ||
+                            !userId ||
+                            !userName ||
+                            !CHAT_REACTION_EMOJIS.includes(
+                                emoji
+                            )
+                        ) {
+                            return;
+                        }
+
+                        const message =
+                            await ChatMessage.findOne({
+                                _id: messageId,
+                                roomId,
+                            });
+
+                        if (!message) {
+                            return;
+                        }
+
+                        const existingIndex =
+                            message.reactions.findIndex(
+                                (reaction) =>
+                                    reaction.userId.toString() ===
+                                        userId &&
+                                    reaction.emoji ===
+                                        emoji
+                            );
+
+                        if (existingIndex >= 0) {
+                            message.reactions.splice(
+                                existingIndex,
+                                1
+                            );
+                        } else {
+                            // One reaction of the same emoji
+                            // per user on a message.
+                            message.reactions.push({
+                                emoji,
+                                userId:
+                                    new (
+                                        mongoose.Types.ObjectId
+                                    )(userId),
+                                userName:
+                                    userName.trim(),
+                            });
+                        }
+
+                        await message.save();
+
+                        const reactions =
+                            message.reactions.map(
+                                (reaction) => ({
+                                    emoji:
+                                        reaction.emoji,
+                                    userId:
+                                        reaction.userId.toString(),
+                                    userName:
+                                        reaction.userName,
+                                })
+                            );
+
+                        io.to(roomId).emit(
+                            "chat-reactions-updated",
+                            {
+                                messageId:
+                                    message._id.toString(),
+                                reactions,
+                            }
+                        );
+                    } catch (error) {
+                        console.error(
+                            "Failed to update chat reaction ❌",
+                            error
+                        );
+                    }
+                }
+            );
+
+            // ==========================================
+            // LEAVE ROOM
+            // ==========================================
+
             socket.on(
                 "leave-room",
-                (data: {
-                    roomId: string;
-                    userId: string;
-                    userName: string;
+                async (data?: {
+                    roomId?: string;
+                    userId?: string;
+                    userName?: string;
                 }) => {
-                    if (!data.roomId) {
+                    const roomId =
+                        data?.roomId ||
+                        socket.data.roomId;
+
+                    const userId =
+                        data?.userId ||
+                        socket.data.userId;
+
+                    const userName =
+                        data?.userName ||
+                        socket.data.userName;
+
+                    if (!roomId) {
                         return;
                     }
 
                     socket
-                        .to(data.roomId)
+                        .to(roomId)
                         .emit(
                             "user-left",
                             {
-                                userId:
-                                    data.userId,
-                                userName:
-                                    data.userName,
+                                userId,
+                                userName,
                             }
                         );
 
-                    socket.leave(
-                        data.roomId
+                    socket.leave(roomId);
+
+                    if (
+                        socket.data.roomId ===
+                        roomId
+                    ) {
+                        socket.data.roomId =
+                            undefined;
+                    }
+
+                    await broadcastRoomParticipants(
+                        io,
+                        roomId
                     );
 
-                    socket.data.roomId =
-                        undefined;
+                    console.log(
+                        `${userName || "User"} left room ${roomId}`
+                    );
                 }
             );
 
@@ -177,7 +614,6 @@ export const initializeSocket = (
                             fileId
                         );
 
-                    // Leave previous file room
                     if (
                         socket.data.fileRoom
                     ) {
@@ -186,37 +622,26 @@ export const initializeSocket = (
                         );
                     }
 
-                    socket.join(
-                        fileRoom
-                    );
+                    socket.join(fileRoom);
 
                     socket.data.fileRoom =
                         fileRoom;
-
                     socket.data.fileProjectId =
                         projectId;
-
                     socket.data.fileId =
                         fileId;
-
                     socket.data.fileUserId =
                         userId;
-
                     socket.data.fileUserName =
                         userName;
 
-                    // Send existing users
-                    // to the newly joined user.
                     try {
                         const sockets =
                             await io
                                 .in(fileRoom)
                                 .fetchSockets();
 
-                        for (
-                            const existingSocket
-                            of sockets
-                        ) {
+                        for (const existingSocket of sockets) {
                             if (
                                 existingSocket.id ===
                                 socket.id
@@ -225,8 +650,7 @@ export const initializeSocket = (
                             }
 
                             if (
-                                existingSocket
-                                    .data
+                                existingSocket.data
                                     .fileUserId
                             ) {
                                 socket.emit(
@@ -236,28 +660,23 @@ export const initializeSocket = (
                                             existingSocket
                                                 .data
                                                 .fileUserId,
-
                                         userName:
                                             existingSocket
                                                 .data
                                                 .fileUserName ||
                                             "Anonymous",
-
                                         fileId,
                                     }
                                 );
                             }
                         }
-                    } catch (
-                        error
-                    ) {
+                    } catch (error) {
                         console.error(
                             "Failed to fetch file users:",
                             error
                         );
                     }
 
-                    // Notify existing users
                     socket
                         .to(fileRoom)
                         .emit(
@@ -304,10 +723,8 @@ export const initializeSocket = (
                             {
                                 projectId:
                                     data.projectId,
-
                                 fileId:
                                     data.fileId,
-
                                 code:
                                     data.code,
                             }
@@ -345,19 +762,14 @@ export const initializeSocket = (
                             {
                                 projectId:
                                     data.projectId,
-
                                 fileId:
                                     data.fileId,
-
                                 userId:
                                     data.userId,
-
                                 userName:
                                     data.userName,
-
                                 lineNumber:
                                     data.lineNumber,
-
                                 column:
                                     data.column,
                             }
@@ -387,18 +799,14 @@ export const initializeSocket = (
                             {
                                 userId:
                                     data.userId,
-
                                 userName:
                                     data.userName,
-
                                 fileId:
                                     data.fileId,
                             }
                         );
 
-                    socket.leave(
-                        fileRoom
-                    );
+                    socket.leave(fileRoom);
 
                     if (
                         socket.data.fileRoom ===
@@ -406,13 +814,10 @@ export const initializeSocket = (
                     ) {
                         socket.data.fileRoom =
                             undefined;
-
                         socket.data.fileId =
                             undefined;
-
                         socket.data.fileUserId =
                             undefined;
-
                         socket.data.fileUserName =
                             undefined;
                     }
@@ -429,32 +834,33 @@ export const initializeSocket = (
 
             socket.on(
                 "disconnect",
-                () => {
+                async () => {
                     const fileRoom =
                         socket.data.fileRoom;
 
                     const fileId =
                         socket.data.fileId;
 
-                    const userId =
+                    const fileUserId =
                         socket.data.fileUserId;
 
-                    const userName =
+                    const fileUserName =
                         socket.data.fileUserName;
 
                     if (
                         fileRoom &&
                         fileId &&
-                        userId
+                        fileUserId
                     ) {
                         socket
                             .to(fileRoom)
                             .emit(
                                 "file-user-left",
                                 {
-                                    userId,
+                                    userId:
+                                        fileUserId,
                                     userName:
-                                        userName ||
+                                        fileUserName ||
                                         "Anonymous",
                                     fileId,
                                 }
@@ -464,21 +870,36 @@ export const initializeSocket = (
                     const roomId =
                         socket.data.roomId;
 
+                    const roomUserId =
+                        socket.data.userId;
+
+                    const roomUserName =
+                        socket.data.userName;
+
                     if (
                         roomId &&
-                        userId
+                        roomUserId
                     ) {
                         socket
                             .to(roomId)
                             .emit(
                                 "user-left",
                                 {
-                                    userId,
+                                    userId:
+                                        roomUserId,
                                     userName:
-                                        userName ||
+                                        roomUserName ||
                                         "Anonymous",
                                 }
                             );
+
+                        // Socket.IO removes a disconnected socket
+                        // from its rooms. fetchSockets() therefore
+                        // gives us the remaining online users.
+                        await broadcastRoomParticipants(
+                            io,
+                            roomId
+                        );
                     }
 
                     console.log(

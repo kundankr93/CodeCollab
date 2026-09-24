@@ -8,6 +8,7 @@ export interface IRoom extends Document {
     owner: mongoose.Types.ObjectId;
     participants: mongoose.Types.ObjectId[];
     language: string;
+    code: string;
     status: RoomStatus;
     createdAt: Date;
     updatedAt: Date;
@@ -46,6 +47,11 @@ const roomSchema = new Schema<IRoom>(
         language: {
             type: String,
             default: "cpp",
+        },
+
+        code: {
+            type: String,
+            default: "",
         },
 
         status: {
