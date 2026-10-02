@@ -372,7 +372,17 @@ const broadcastRoomParticipants = async (
     }
 };
 
+// Prevent overlapping timeout scans when a database query takes longer
+// than the polling interval.
+let isCheckingInterviewTimeouts = false;
+
 const checkInterviewTimeouts = async (io: Server) => {
+    if (isCheckingInterviewTimeouts) {
+        return;
+    }
+
+    isCheckingInterviewTimeouts = true;
+
     try {
         const now = Date.now();
 
@@ -395,8 +405,15 @@ const checkInterviewTimeouts = async (io: Server) => {
 
             if (now < expiresAt) continue;
 
+            // Complete only the same active interview that was checked.
+            // If the session was restarted, its new start time won't match.
             const updatedRoom = await Room.findOneAndUpdate(
-                { _id: room._id, status: "active" },
+                {
+                    _id: room._id,
+                    status: "active",
+                    interviewMode: true,
+                    interviewStartedAt: room.interviewStartedAt,
+                },
                 { $set: { status: "completed" } },
                 { new: true }
             );
@@ -455,6 +472,8 @@ const checkInterviewTimeouts = async (io: Server) => {
             "Interview timeout check failed ❌",
             error
         );
+    } finally {
+        isCheckingInterviewTimeouts = false;
     }
 };
 
@@ -465,10 +484,12 @@ export const initializeSocket = (
     // INTERVIEW TIMEOUT MONITOR
     // ==========================================
 
+    // Poll every 10 seconds. The overlap guard prevents concurrent scans.
     setInterval(() => {
         void checkInterviewTimeouts(io);
-    }, 1000);
+    }, 10_000);
 
+    // Run once immediately on startup.
     void checkInterviewTimeouts(io);
 
     // ==========================================
@@ -578,28 +599,53 @@ export const initializeSocket = (
                 "join-room",
                 async (data: {
                     roomId: string;
-                    userId: string;
-                    userName: string;
+                    // Kept optional for compatibility with existing clients.
+                    // These values are never trusted by the server.
+                    userId?: string;
+                    userName?: string;
                 }) => {
-                    const {
-                        roomId,
-                        userId,
-                        userName,
-                    } = data;
+                    try {
+                        const roomId =
+                            typeof data?.roomId === "string"
+                                ? data.roomId.trim()
+                                : "";
 
-                    if (
-                        !roomId ||
-                        !userId ||
-                        socket.data.userId !==
+                        // The authenticated identity is established by the
+                        // Socket.IO JWT middleware, not by client payloads.
+                        const userId = socket.data.userId;
+
+                        if (
+                            !roomId ||
+                            roomId.length > 128 ||
+                            !userId ||
+                            !mongoose.Types.ObjectId.isValid(userId)
+                        ) {
+                            socket.emit("room-join-error", {
+                                message: "Invalid room or authentication",
+                            });
+                            return;
+                        }
+
+                        // Always use the database as the source of truth for
+                        // the participant's display name.
+                        const authenticatedUser = await User.findById(
                             userId
-                    ) {
-                        return;
-                    }
+                        ).select("name");
 
-                    const room =
-                        await Room.findOne({
-                            roomId,
-                        });
+                        if (!authenticatedUser) {
+                            socket.emit("room-join-error", {
+                                message: "Authenticated user was not found",
+                            });
+                            return;
+                        }
+
+                        const userName =
+                            authenticatedUser.name || "User";
+
+                        const room =
+                            await Room.findOne({
+                                roomId,
+                            });
 
                     if (!room) {
                         return;
@@ -661,12 +707,7 @@ export const initializeSocket = (
                     socket.data.roomId =
                         roomId;
 
-                    socket.data.userId =
-                        userId;
-
-                    socket.data.userName =
-                        userName ||
-                        "Anonymous";
+                    socket.data.userName = userName;
 
                     socket
                         .to(roomId)
@@ -674,9 +715,7 @@ export const initializeSocket = (
                             "user-joined",
                             {
                                 userId,
-                                userName:
-                                    userName ||
-                                    "Anonymous",
+                                userName,
                             }
                         );
 
@@ -702,9 +741,15 @@ export const initializeSocket = (
                         }
                     );
 
-                    console.log(
-                        `${userName} joined room ${roomId}`
-                    );
+                        console.log(
+                            `${userName} joined room ${roomId}`
+                        );
+                    } catch (error) {
+                        console.error("Join room error:", error);
+                        socket.emit("room-join-error", {
+                            message: "Unable to join the room",
+                        });
+                    }
                 }
             );
 

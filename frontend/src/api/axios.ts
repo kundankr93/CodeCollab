@@ -1,7 +1,26 @@
-import axios from "axios";
+import axios, {
+    type AxiosError,
+    type InternalAxiosRequestConfig,
+} from "axios";
+
+interface RetryableRequestConfig
+    extends InternalAxiosRequestConfig {
+    _retry?: boolean;
+}
+
+const API_BASE_URL = "http://localhost:5000/api";
 
 const api = axios.create({
-    baseURL: "http://localhost:5000/api",
+    baseURL: API_BASE_URL,
+    headers: {
+        "Content-Type": "application/json",
+    },
+});
+
+// Separate client prevents refresh requests from entering
+// the main API response interceptor.
+const refreshClient = axios.create({
+    baseURL: API_BASE_URL,
     headers: {
         "Content-Type": "application/json",
     },
@@ -17,20 +36,40 @@ let failedQueue: Array<{
 const processQueue = (
     error: unknown,
     token: string | null = null
-) => {
-    failedQueue.forEach(
-        (request) => {
-            if (error) {
-                request.reject(error);
-            } else if (token) {
-                request.resolve(token);
-            }
+): void => {
+    failedQueue.forEach((request) => {
+        if (error) {
+            request.reject(error);
+        } else if (token) {
+            request.resolve(token);
+        } else {
+            request.reject(
+                new Error(
+                    "Token refresh did not return an access token."
+                )
+            );
         }
-    );
+    });
 
     failedQueue = [];
 };
 
+const clearStoredTokens = (): void => {
+    localStorage.removeItem("accessToken");
+    localStorage.removeItem("refreshToken");
+};
+
+const isAuthenticationEndpoint = (
+    url: string
+): boolean => {
+    const normalizedUrl = url.toLowerCase();
+
+    return (
+        normalizedUrl.includes("/auth/login") ||
+        normalizedUrl.includes("/auth/register") ||
+        normalizedUrl.includes("/auth/refresh")
+    );
+};
 
 /* =========================
    REQUEST INTERCEPTOR
@@ -39,9 +78,7 @@ const processQueue = (
 api.interceptors.request.use(
     (config) => {
         const accessToken =
-            localStorage.getItem(
-                "accessToken"
-            );
+            localStorage.getItem("accessToken");
 
         if (accessToken) {
             config.headers.Authorization =
@@ -50,214 +87,141 @@ api.interceptors.request.use(
 
         return config;
     },
-    (error) => {
-        return Promise.reject(error);
-    }
+    (error: unknown) => Promise.reject(error)
 );
-
 
 /* =========================
    RESPONSE INTERCEPTOR
 ========================= */
 
 api.interceptors.response.use(
-    (response) => {
-        return response;
-    },
+    (response) => response,
 
-    async (error) => {
+    async (error: AxiosError) => {
         const originalRequest =
-            error.config;
+            error.config as
+                | RetryableRequestConfig
+                | undefined;
 
-        const status =
-            error.response?.status;
-
-        /*
-         * Only handle 401 errors.
-         */
+        const status = error.response?.status;
 
         if (
             status !== 401 ||
             !originalRequest
         ) {
-            return Promise.reject(
-                error
-            );
+            return Promise.reject(error);
         }
 
-        /*
-         * Prevent infinite refresh loops.
-         */
+        const requestUrl =
+            originalRequest.url ?? "";
 
+        // Do not refresh for authentication endpoints.
         if (
-            originalRequest._retry
+            isAuthenticationEndpoint(requestUrl)
         ) {
-            localStorage.removeItem(
-                "accessToken"
-            );
-
-            localStorage.removeItem(
-                "refreshToken"
-            );
-
-            return Promise.reject(
-                error
-            );
+            return Promise.reject(error);
         }
 
-        originalRequest._retry =
-            true;
-
-        const refreshToken =
-            localStorage.getItem(
-                "refreshToken"
-            );
-
-        /*
-         * No refresh token means
-         * the user must login again.
-         */
-
-        if (!refreshToken) {
-            localStorage.removeItem(
-                "accessToken"
-            );
-
-            return Promise.reject(
-                error
-            );
+        // Prevent infinite retry loops.
+        if (originalRequest._retry) {
+            clearStoredTokens();
+            return Promise.reject(error);
         }
 
-        /*
-         * If another request is
-         * already refreshing the token,
-         * wait for it.
-         */
+        originalRequest._retry = true;
 
+        /*
+         * If another request is already refreshing,
+         * wait for its new access token.
+         *
+         * IMPORTANT:
+         * Do this before reading refreshToken.
+         * The token may already be rotating.
+         */
         if (isRefreshing) {
-            return new Promise(
-                (
-                    resolve,
-                    reject
-                ) => {
+            return new Promise<string>(
+                (resolve, reject) => {
                     failedQueue.push({
                         resolve,
                         reject,
                     });
                 }
-            ).then(
-                (newAccessToken) => {
-                    originalRequest.headers =
-                        originalRequest.headers ||
-                        {};
+            ).then((newAccessToken) => {
+                originalRequest.headers.Authorization =
+                    `Bearer ${newAccessToken}`;
 
-                    originalRequest.headers.Authorization =
-                        `Bearer ${newAccessToken}`;
+                return api(originalRequest);
+            });
+        }
 
-                    return api(
-                        originalRequest
-                    );
-                }
-            );
+        const refreshToken =
+            localStorage.getItem("refreshToken");
+
+        if (!refreshToken) {
+            clearStoredTokens();
+            return Promise.reject(error);
         }
 
         isRefreshing = true;
 
-        try {
-            /*
-             * Use plain axios here,
-             * not api, so the refresh
-             * request itself doesn't
-             * trigger this interceptor.
-             */
+        let newAccessToken: string;
 
+        try {
+            // Use the separate client to avoid recursion.
             const response =
-                await axios.post(
-                    "http://localhost:5000/api/auth/refresh",
+                await refreshClient.post(
+                    "/auth/refresh",
                     {
                         refreshToken,
-                    },
-                    {
-                        headers: {
-                            "Content-Type":
-                                "application/json",
-                        },
                     }
                 );
 
-            const newAccessToken =
-                response.data
-                    .accessToken;
+            const accessToken: unknown =
+                response.data?.accessToken;
 
-            const newRefreshToken =
-                response.data
-                    .refreshToken;
+            const rotatedRefreshToken: unknown =
+                response.data?.refreshToken;
 
             if (
-                !newAccessToken
+                typeof accessToken !== "string" ||
+                !accessToken ||
+                typeof rotatedRefreshToken !== "string" ||
+                !rotatedRefreshToken
             ) {
                 throw new Error(
-                    "Refresh token response did not contain an access token."
+                    "Refresh response must contain both accessToken and refreshToken."
                 );
             }
 
+            newAccessToken = accessToken;
+
+            // Save both rotated tokens before retrying requests.
             localStorage.setItem(
                 "accessToken",
-                newAccessToken
+                accessToken
             );
 
-            /*
-             * Some refresh-token
-             * implementations rotate
-             * the refresh token.
-             */
-
-            if (
-                newRefreshToken
-            ) {
-                localStorage.setItem(
-                    "refreshToken",
-                    newRefreshToken
-                );
-            }
-
-            processQueue(
-                null,
-                newAccessToken
+            localStorage.setItem(
+                "refreshToken",
+                rotatedRefreshToken
             );
+        } catch (refreshError: unknown) {
+            processQueue(refreshError, null);
+            clearStoredTokens();
 
-            originalRequest.headers =
-                originalRequest.headers ||
-                {};
-
-            originalRequest.headers.Authorization =
-                `Bearer ${newAccessToken}`;
-
-            return api(
-                originalRequest
-            );
-        } catch (
-            refreshError
-        ) {
-            processQueue(
-                refreshError,
-                null
-            );
-
-            localStorage.removeItem(
-                "accessToken"
-            );
-
-            localStorage.removeItem(
-                "refreshToken"
-            );
-
-            return Promise.reject(
-                refreshError
-            );
+            return Promise.reject(refreshError);
         } finally {
             isRefreshing = false;
         }
+
+        // Release queued requests with the new access token.
+        processQueue(null, newAccessToken);
+
+        // Retry the original request exactly once.
+        originalRequest.headers.Authorization =
+            `Bearer ${newAccessToken}`;
+
+        return api(originalRequest);
     }
 );
 

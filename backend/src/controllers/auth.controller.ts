@@ -504,7 +504,10 @@ export const refreshAccessToken =
                 refreshToken,
             } = req.body;
 
-            if (!refreshToken) {
+            if (
+                typeof refreshToken !== "string" ||
+                !refreshToken.trim()
+            ) {
                 res.status(401).json({
                     success: false,
                     message:
@@ -514,51 +517,60 @@ export const refreshAccessToken =
                 return;
             }
 
-            // Verify JWT refresh token
+            // Verify the refresh token and extract its user ID.
             const userId =
                 verifyRefreshToken(
                     refreshToken
                 );
 
-            // Find user
-            const user =
-                await User.findById(
-                    userId
+            /*
+             * Rotate the refresh token atomically.
+             *
+             * Matching the old token in the update query prevents
+             * two concurrent refresh requests from both succeeding.
+             * Only the request that replaces the currently stored
+             * token receives a new token pair.
+             */
+            const newRefreshToken =
+                generateRefreshToken(userId);
+
+            const updatedUser =
+                await User.findOneAndUpdate(
+                    {
+                        _id: userId,
+                        refreshToken,
+                    },
+                    {
+                        $set: {
+                            refreshToken:
+                                newRefreshToken,
+                        },
+                    },
+                    {
+                        new: true,
+                    }
                 );
 
-            if (!user) {
+            if (!updatedUser) {
                 res.status(401).json({
                     success: false,
                     message:
-                        "User not found",
+                        "Invalid or expired refresh token",
                 });
 
                 return;
             }
 
-            // Check stored refresh token
-            if (
-                user.refreshToken !==
-                refreshToken
-            ) {
-                res.status(401).json({
-                    success: false,
-                    message:
-                        "Invalid refresh token",
-                });
-
-                return;
-            }
-
-            // Generate new access token
             const accessToken =
                 generateAccessToken(
-                    user._id.toString()
+                    updatedUser._id.toString()
                 );
 
             res.status(200).json({
                 success: true,
                 accessToken,
+                refreshToken:
+                    newRefreshToken,
             });
 
         } catch (error) {

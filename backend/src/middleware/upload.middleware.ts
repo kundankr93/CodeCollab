@@ -1,69 +1,63 @@
 import multer from "multer";
 import path from "path";
 import fs from "fs";
+import crypto from "crypto";
 
-const uploadDirectory =
-    path.join(
-        process.cwd(),
-        "src",
-        "uploads",
-        "projects"
-    );
+const uploadDirectory = path.join(
+    process.cwd(),
+    "src",
+    "uploads",
+    "projects"
+);
 
 if (!fs.existsSync(uploadDirectory)) {
-    fs.mkdirSync(
-        uploadDirectory,
-        {
-            recursive: true,
-        }
-    );
+    fs.mkdirSync(uploadDirectory, {
+        recursive: true,
+    });
 }
 
-const storage =
-    multer.diskStorage({
-        destination: (
-            _req,
-            _file,
-            cb
-        ) => {
-            cb(
-                null,
-                uploadDirectory
-            );
-        },
+const storage = multer.diskStorage({
+    destination: (_req, _file, cb) => {
+        cb(null, uploadDirectory);
+    },
 
-        filename: (
-            _req,
-            file,
-            cb
-        ) => {
-            const uniqueName =
-                `${Date.now()}-` +
-                `${Math.round(
-                    Math.random() * 1e9
-                )}` +
-                path.extname(
-                    file.originalname
-                );
+    filename: (_req, file, cb) => {
+        // Extract only the extension from the original filename.
+        const extension = path.extname(
+            path.basename(file.originalname)
+        );
 
-            cb(
-                null,
-                uniqueName
-            );
-        },
-    });
+        // Generate a unique server-side filename.
+        const uniqueName =
+            `${crypto.randomUUID()}${extension}`;
 
-export const upload =
-    multer({
-        storage,
+        cb(null, uniqueName);
+    },
+});
 
-        limits: {
-            // Maximum files in ONE request
-            files: 100,
+export const upload = multer({
+    storage,
 
-            // Maximum size of ONE file
-            // 50 MB
-            fileSize:
-                50 * 1024 * 1024,
-        },
-    });
+    // All extensions and MIME types are accepted.
+    // Do not treat the original filename or MIME type as trusted.
+    fileFilter: (_req, _file, cb) => {
+        cb(null, true);
+    },
+
+    limits: {
+        // Maximum files in one request.
+        files: 100,
+
+        // Maximum size of one file: 50 MB.
+        fileSize: 50 * 1024 * 1024,
+
+        // Maximum number of non-file fields.
+        fields: 100,
+
+        // Maximum size of one text field: 1 MB.
+        fieldSize: 1 * 1024 * 1024,
+
+        // Maximum total multipart parts.
+        parts: 200,
+    },
+});

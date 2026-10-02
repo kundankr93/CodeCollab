@@ -30,6 +30,7 @@ import api from "../api/axios";
 import { useAuth } from "../context/AuthContext";
 
 import "../styles/coding-room.css";
+import "../styles/interview-timer.css";
 import "../styles/chat-reactions.css";
 import "../styles/chat-message-actions.css";
 import "../styles/room-file-collaboration.css";
@@ -303,12 +304,23 @@ const isInterviewRoomRoute =
         }
 
         const updateTimer = () => {
-            const startTime = new Date(
+            const startTime = Date.parse(
                 room.interviewStartedAt!
-            ).getTime();
+            );
 
-            const durationSeconds =
-                room.interviewDurationMinutes * 60;
+            const durationMinutes = Number(
+                room.interviewDurationMinutes || 60
+            );
+            const durationSeconds = durationMinutes * 60;
+
+            if (
+                !Number.isFinite(startTime) ||
+                !Number.isFinite(durationSeconds) ||
+                durationSeconds < 0
+            ) {
+                setInterviewRemainingSeconds(0);
+                return;
+            }
 
             const elapsedSeconds = Math.floor(
                 (Date.now() - startTime) / 1000
@@ -516,7 +528,15 @@ int main() {
         useRef<{
             fileId: string;
             code: string;
+            clientRevision: number;
         } | null>(null);
+
+    /*
+     * Monotonic sequence for live code previews. The server uses this
+     * to discard previews whose asynchronous authorization finishes late.
+     */
+    const roomFileClientRevisionRef =
+        useRef(0);
 
     const fileInputRef =
         useRef<HTMLInputElement | null>(null);
@@ -1538,6 +1558,8 @@ int main() {
                                 data.fileId,
                             code:
                                 pendingCode.code,
+                            clientRevision:
+                                pendingCode.clientRevision,
                         }
                     );
                 }
@@ -2680,13 +2702,15 @@ const handleStartSession = async () => {
     };
 
     const openRoomFile = async (
-        file: RoomFile
+        file: RoomFile,
+        broadcastToRoom = true
     ) => {
-        if (isCompleted) {
-            return;
-        }
-
+        // Completed rooms are read-only, but participants can still switch
+        // files to review the saved code.
         setFileConflict(null);
+        // Update the ref immediately so a late file response cannot
+        // overwrite the code after the user has switched to another file.
+        activeFileNameRef.current = file.path;
         setActiveFileName(file.path);
         if (roomId) {
             localStorage.setItem(
@@ -2695,7 +2719,33 @@ const handleStartSession = async () => {
             );
         }
 
-        if (file.content) {
+        // Synchronize the selected file with every participant in this room.
+        // Remote selections call this function with broadcastToRoom=false.
+        if (
+            broadcastToRoom &&
+            roomId &&
+            file._id &&
+            socket?.connected
+        ) {
+            socket.emit("room-active-file-change", {
+                roomId,
+                fileId: file._id,
+            });
+        }
+
+        // An empty string is valid, already-loaded file content.
+        // Update the local cache and editor immediately. Monaco receives the
+        // file path above, so it can switch to the corresponding model without
+        // waiting for React or a network request.
+        if (typeof file.content === "string") {
+            setRoomFiles((previous) =>
+                previous.map((item) =>
+                    item.path === file.path
+                        ? { ...item, content: file.content }
+                        : item
+                )
+            );
+
             setCode(file.content);
             return;
         }
@@ -2709,6 +2759,12 @@ const handleStartSession = async () => {
             const response = await api.get(
                 `/rooms/${roomId}/files/${file._id}`
             );
+
+            // The user may have clicked another file while this request was
+            // in flight. Never repaint the editor for an older selection.
+            if (activeFileNameRef.current !== file.path) {
+                return;
+            }
 
             const serverFile = response.data.file;
 
@@ -2725,7 +2781,6 @@ const handleStartSession = async () => {
             };
 
             setFileConflict(null);
-            setCode(loadedFile.content);
 
             setRoomFiles((previous) =>
                 previous.map((item) =>
@@ -2734,6 +2789,13 @@ const handleStartSession = async () => {
                         : item
                 )
             );
+
+            if (
+                activeFileNameRef.current ===
+                file.path
+            ) {
+                setCode(loadedFile.content);
+            }
         } catch (fileError) {
             console.error(
                 "Failed to load room file:",
@@ -2742,6 +2804,56 @@ const handleStartSession = async () => {
             setCode("");
         }
     };
+
+    // =========================
+    // ROOM ACTIVE FILE SYNC
+    // =========================
+
+    useEffect(() => {
+        if (!socket || !roomId) {
+            return;
+        }
+
+        const handleRemoteActiveFileChange = (data: {
+            roomId: string;
+            fileId: string;
+            userId: string;
+        }) => {
+            if (
+                data?.roomId !== roomId ||
+                !data.fileId ||
+                data.userId === user?.id
+            ) {
+                return;
+            }
+
+            const selectedFile = roomFilesRef.current.find(
+                (file) => file._id === data.fileId
+            );
+
+            if (
+                !selectedFile ||
+                selectedFile.path === activeFileNameRef.current
+            ) {
+                return;
+            }
+
+            // Do not rebroadcast a selection received from another user.
+            void openRoomFile(selectedFile, false);
+        };
+
+        socket.on(
+            "room-active-file-changed",
+            handleRemoteActiveFileChange
+        );
+
+        return () => {
+            socket.off(
+                "room-active-file-changed",
+                handleRemoteActiveFileChange
+            );
+        };
+    }, [socket, roomId, user?.id, openRoomFile]);
 
     // =========================
     // CODE CHANGE
@@ -2809,9 +2921,13 @@ const handleStartSession = async () => {
             fileId &&
             roomId
         ) {
+            const clientRevision =
+                ++roomFileClientRevisionRef.current;
+
             latestRoomFileCodeRef.current = {
                 fileId,
                 code: newCode,
+                clientRevision,
             };
 
             if (
@@ -2825,6 +2941,7 @@ const handleStartSession = async () => {
                         roomId,
                         fileId,
                         code: newCode,
+                        clientRevision,
                     }
                 );
             }
@@ -3789,7 +3906,7 @@ const handleStartSession = async () => {
     {room.name}
 </h2>
 
-{isInterviewRoomRoute && room.interviewMode && (
+{room.interviewMode && (
     <span className="interview-room-badge">
         🎤 Interview Room
     </span>
@@ -3831,7 +3948,7 @@ const handleStartSession = async () => {
                     </button>
                     {/* // {room?.interviewMode && isActive && interviewRemainingSeconds !== null && ( */}
 
-                     {isInterviewRoomRoute && room.interviewMode && (
+                     {room.interviewMode && (
     <div
         style={{
             display: "flex",
@@ -3948,37 +4065,6 @@ const handleStartSession = async () => {
                 </div>
 
             </header>
-
-            {isInterviewRoomRoute && room.interviewMode && (
-    <section className="interview-timer-panel">
-        <div className="interview-timer-info">
-            <span className="interview-timer-label">
-                🎤 INTERVIEW SESSION
-            </span>
-
-            <span className="interview-timer-status">
-                {isWaiting
-                    ? "Ready to start"
-                    : isCompleted
-                        ? "Interview completed"
-                        : "Interview in progress"}
-            </span>
-        </div>
-
-        <div className="interview-timer-value">
-            {isActive && interviewRemainingSeconds !== null
-                ? formatInterviewTime(interviewRemainingSeconds)
-                : formatInterviewTime(
-                    room.interviewDurationMinutes * 60
-                )}
-        </div>
-
-        <span className="interview-timer-duration">
-            Duration: {room.interviewDurationMinutes} minutes
-        </span>
-    </section>
-)}
-
             {isCompleted && (
                 <div className="room-completed-banner">
                     🔒 This coding session is completed. The editor, test cases and code execution are read-only. Chat remains available.
@@ -4188,6 +4274,8 @@ const handleStartSession = async () => {
 
                         <Editor
                             height="100%"
+                            path={activeFileName}
+                            saveViewState={true}
                             language={
                                 getEditorLanguage()
                             }

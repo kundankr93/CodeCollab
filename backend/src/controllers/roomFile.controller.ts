@@ -1,3 +1,4 @@
+import mongoose from "mongoose";
 import { Response } from "express";
 
 import { Room } from "../models/Room.js";
@@ -105,6 +106,96 @@ const mongooseIdValid = (
     value: string
 ): boolean =>
     /^[a-fA-F0-9]{24}$/.test(value);
+
+
+// ==========================================
+// TRANSACTIONAL ROOM FILE WRITE
+// ==========================================
+//
+// Every file write first updates the same Room document that
+// completeRoom updates. This makes file writes and completion
+// conflict/serialize at the MongoDB document level.
+//
+// The Room and RoomFile changes commit together. If completion
+// wins the race, the conditional Room update no longer matches.
+
+type RoomWriteResult<T> =
+    | { kind: "saved"; value: T }
+    | { kind: "missing" | "forbidden" | "completed" };
+
+const withWritableRoomTransaction = async <T>(
+    roomId: string,
+    userId: string,
+    writeFiles: (session: mongoose.ClientSession) => Promise<T>
+): Promise<RoomWriteResult<T>> => {
+    const session = await mongoose.startSession();
+
+    let outcome: RoomWriteResult<T> = {
+        kind: "missing",
+    };
+
+    try {
+        await session.withTransaction(async () => {
+            // This conditional write is intentional. It makes this
+            // transaction contend with completeRoom on the Room doc.
+            const roomWrite = await Room.updateOne(
+                {
+                    roomId,
+                    status: { $ne: "completed" },
+                    $or: [
+                        { owner: userId },
+                        { participants: userId },
+                    ],
+                },
+                {
+                    $set: {
+                        updatedAt: new Date(),
+                    },
+                },
+                { session }
+            );
+
+            if (roomWrite.matchedCount !== 1) {
+                const room = await Room.findOne({ roomId })
+                    .select("owner participants status")
+                    .session(session)
+                    .lean();
+
+                if (!room) {
+                    outcome = { kind: "missing" };
+                } else {
+                    const isMember =
+                        room.owner.toString() === userId ||
+                        room.participants.some(
+                            (participant) => participant.toString() === userId
+                        );
+
+                    if (!isMember) {
+                        outcome = { kind: "forbidden" };
+                    } else if (room.status === "completed") {
+                        outcome = { kind: "completed" };
+                    } else {
+                        // A concurrent room transition may have caused
+                        // this attempt not to match. Abort rather than
+                        // silently perform a file write.
+                        throw new Error(
+                            "Room changed while saving files; retry the request"
+                        );
+                    }
+                }
+
+                return;
+            }
+
+            const value = await writeFiles(session);
+            outcome = { kind: "saved", value };
+        });
+
+        return outcome;
+    } finally {
+        await session.endSession();
+    }
+};
 
 // ==========================================
 // GET ALL ROOM FILES
@@ -220,327 +311,203 @@ export const upsertRoomFiles = async (
     res: Response
 ): Promise<void> => {
     try {
-        const roomId = String(
-            req.params.roomId
-        );
+        const roomId = String(req.params.roomId);
 
         if (!req.userId) {
             res.status(401).json({
                 success: false,
-                message:
-                    "Authentication required",
+                message: "Authentication required",
             });
             return;
         }
 
-        if (
-            !(await isRoomMember(
-                roomId,
-                req.userId
-            ))
-        ) {
-            res.status(403).json({
-                success: false,
-                message:
-                    "You are not a member of this room",
-            });
-            return;
-        }
+        const files = req.body?.files;
 
-        const room =
-            await Room.findOne({
-                roomId,
-            }).select("status");
-
-        if (!room) {
-            res.status(404).json({
-                success: false,
-                message:
-                    "Room not found",
-            });
-            return;
-        }
-
-        if (
-            room.status ===
-            "completed"
-        ) {
+        if (!Array.isArray(files) || files.length === 0) {
             res.status(400).json({
                 success: false,
-                message:
-                    "Completed rooms are read-only",
+                message: "Files are required",
             });
             return;
         }
 
-        const files =
-            req.body?.files;
-
-        if (
-            !Array.isArray(files) ||
-            files.length === 0
-        ) {
+        if (files.length > MAX_FILES_PER_BATCH) {
             res.status(400).json({
                 success: false,
-                message:
-                    "Files are required",
+                message: `Maximum ${MAX_FILES_PER_BATCH} files per batch`,
             });
             return;
         }
 
-        if (
-            files.length >
-            MAX_FILES_PER_BATCH
-        ) {
-            res.status(400).json({
-                success: false,
-                message:
-                    `Maximum ${MAX_FILES_PER_BATCH} files per batch`,
-            });
-            return;
-        }
+        const normalizedFiles: IncomingRoomFile[] = [];
+        const seenPaths = new Set<string>();
 
-        const normalizedFiles: IncomingRoomFile[] =
-            [];
-
-        const seenPaths =
-            new Set<string>();
-
-        for (
-            const incoming of
-            files as IncomingRoomFile[]
-        ) {
+        for (const incoming of files as IncomingRoomFile[]) {
             if (
                 !incoming ||
-                typeof incoming.name !==
-                    "string" ||
-                typeof incoming.path !==
-                    "string" ||
-                typeof incoming.content !==
-                    "string"
+                typeof incoming.name !== "string" ||
+                typeof incoming.path !== "string" ||
+                typeof incoming.content !== "string"
             ) {
                 res.status(400).json({
                     success: false,
-                    message:
-                        "Invalid room file data",
+                    message: "Invalid room file data",
                 });
                 return;
             }
 
-            const path =
-                normalizePath(
-                    incoming.path
-                );
+            const path = normalizePath(incoming.path);
 
-            if (
-                !path ||
-                path.length > 500
-            ) {
+            if (!path || path.length > 500) {
                 res.status(400).json({
                     success: false,
-                    message:
-                        "Invalid file path",
+                    message: "Invalid file path",
                 });
                 return;
             }
 
-            if (
-                incoming.content.length >
-                MAX_FILE_CONTENT
-            ) {
+            if (incoming.content.length > MAX_FILE_CONTENT) {
                 res.status(400).json({
                     success: false,
-                    message:
-                        `File ${incoming.name} is too large`,
+                    message: `File ${incoming.name} is too large`,
                 });
                 return;
             }
 
-            if (
-                seenPaths.has(path)
-            ) {
+            if (seenPaths.has(path)) {
                 continue;
             }
 
             seenPaths.add(path);
-
-            normalizedFiles.push({
-                ...incoming,
-                path,
-            });
+            normalizedFiles.push({ ...incoming, path });
         }
 
-        if (
-            normalizedFiles.length === 0
-        ) {
+        if (normalizedFiles.length === 0) {
             res.status(400).json({
                 success: false,
-                message:
-                    "No valid files were provided",
+                message: "No valid files were provided",
             });
             return;
         }
 
-        // ======================================
-        // DETERMINE EXISTING FILES
-        // ======================================
+        const paths = normalizedFiles.map((file) => file.path);
 
-        const paths =
-            normalizedFiles.map(
-                (file) => file.path
-            );
+        const result = await withWritableRoomTransaction(
+            roomId,
+            req.userId,
+            async (session) => {
+                const existingFiles = await RoomFile.find({
+                    roomId,
+                    path: { $in: paths },
+                })
+                    .select("_id path version")
+                    .session(session)
+                    .lean();
 
-        const existingFiles =
-            await RoomFile.find({
-                roomId,
-                path: {
-                    $in: paths,
-                },
-            }).select(
-                "_id path version"
-            );
+                const existingPaths = new Set(
+                    existingFiles.map((file) => file.path)
+                );
 
-        const existingPaths =
-            new Set(
-                existingFiles.map(
-                    (file) => file.path
-                )
-            );
+                const operations: any[] = [];
 
-        const operations: any[] = [];
-
-        // ======================================
-        // CREATE / UPDATE OPERATIONS
-        // ======================================
-
-        for (
-            const incoming of
-            normalizedFiles
-        ) {
-            if (
-                existingPaths.has(
-                    incoming.path
-                )
-            ) {
-                // Existing file:
-                // increment version.
-
-                operations.push({
-                    updateOne: {
-                        filter: {
-                            roomId,
-                            path:
-                                incoming.path,
-                        },
-
-                        update: {
-                            $set: {
-                                name:
-                                    incoming.name,
-
-                                path:
-                                    incoming.path,
-
-                                content:
-                                    incoming.content,
-
-                                language:
-                                    incoming.language ||
-                                    getLanguage(
-                                        incoming.name
-                                    ),
-
-                                size:
-                                    incoming
-                                        .content
-                                        .length,
+                for (const incoming of normalizedFiles) {
+                    if (existingPaths.has(incoming.path)) {
+                        operations.push({
+                            updateOne: {
+                                filter: {
+                                    roomId,
+                                    path: incoming.path,
+                                },
+                                update: {
+                                    $set: {
+                                        name: incoming.name,
+                                        path: incoming.path,
+                                        content: incoming.content,
+                                        language:
+                                            incoming.language ||
+                                            getLanguage(incoming.name),
+                                        size: incoming.content.length,
+                                    },
+                                    $inc: { version: 1 },
+                                },
                             },
-
-                            $inc: {
-                                version: 1,
+                        });
+                    } else {
+                        operations.push({
+                            insertOne: {
+                                document: {
+                                    roomId,
+                                    name: incoming.name,
+                                    path: incoming.path,
+                                    content: incoming.content,
+                                    language:
+                                        incoming.language ||
+                                        getLanguage(incoming.name),
+                                    size: incoming.content.length,
+                                    version: 1,
+                                },
                             },
-                        },
-                    },
-                });
-            } else {
-                // New file:
-                // start at version 1.
+                        });
+                    }
+                }
 
-                operations.push({
-                    insertOne: {
-                        document: {
-                            roomId,
+                await RoomFile.bulkWrite(
+                    operations,
+                    {
+                        ordered: false,
+                        session,
+                    }
+                );
 
-                            name:
-                                incoming.name,
-
-                            path:
-                                incoming.path,
-
-                            content:
-                                incoming.content,
-
-                            language:
-                                incoming.language ||
-                                getLanguage(
-                                    incoming.name
-                                ),
-
-                            size:
-                                incoming
-                                    .content
-                                    .length,
-
-                            version: 1,
-                        },
-                    },
-                });
-            }
-        }
-
-        await RoomFile.bulkWrite(
-            operations,
-            {
-                ordered: false,
+                return RoomFile.find({
+                    roomId,
+                    path: { $in: paths },
+                })
+                    .select("_id name path language size version")
+                    .sort({ path: 1 })
+                    .session(session)
+                    .lean();
             }
         );
 
-        // ======================================
-        // RETURN SAVED FILE METADATA
-        // ======================================
-
-        const savedFiles =
-            await RoomFile.find({
-                roomId,
-                path: {
-                    $in: paths,
+        if (result.kind !== "saved") {
+            const responses = {
+                missing: {
+                    status: 404,
+                    message: "Room not found",
                 },
-            })
-                .select(
-                    "_id name path language size version"
-                )
-                .sort({
-                    path: 1,
-                })
-                .lean();
+                forbidden: {
+                    status: 403,
+                    message: "You are not a member of this room",
+                },
+                completed: {
+                    status: 400,
+                    message: "Completed rooms are read-only",
+                },
+            } as const;
+
+            const response = responses[result.kind];
+            res.status(response.status).json({
+                success: false,
+                message: response.message,
+            });
+            return;
+        }
 
         res.status(200).json({
             success: true,
-            files: savedFiles,
+            files: result.value,
         });
     } catch (error) {
-        console.error(
-            "Save room files error ❌",
-            error
-        );
+        console.error("Save room files error ❌", error);
 
         res.status(500).json({
             success: false,
-            message:
-                "Internal server error",
+            message: "Internal server error",
         });
     }
 };
+
 
 // ==========================================
 // GET SINGLE FILE CONTENT
@@ -655,286 +622,172 @@ export const getRoomFileContent =
 // WITH OPTIMISTIC VERSION CHECK
 // ==========================================
 
-export const updateRoomFile =
-    async (
-        req: AuthRequest,
-        res: Response
-    ): Promise<void> => {
-        try {
-            const roomId = String(
-                req.params.roomId
-            );
+export const updateRoomFile = async (
+    req: AuthRequest,
+    res: Response
+): Promise<void> => {
+    try {
+        const roomId = String(req.params.roomId);
+        const fileId = String(req.params.fileId);
 
-            const fileId = String(
-                req.params.fileId
-            );
+        if (!req.userId) {
+            res.status(401).json({
+                success: false,
+                message: "Authentication required",
+            });
+            return;
+        }
 
-            // ==================================
-            // AUTHENTICATION
-            // ==================================
+        if (typeof req.body?.content !== "string") {
+            res.status(400).json({
+                success: false,
+                message: "Content must be a string",
+            });
+            return;
+        }
 
-            if (!req.userId) {
-                res.status(401).json({
-                    success: false,
-                    message:
-                        "Authentication required",
-                });
-                return;
-            }
+        if (req.body.content.length > MAX_FILE_CONTENT) {
+            res.status(400).json({
+                success: false,
+                message: "File is too large",
+            });
+            return;
+        }
 
-            // ==================================
-            // ROOM MEMBERSHIP
-            // ==================================
+        if (!mongooseIdValid(fileId)) {
+            res.status(400).json({
+                success: false,
+                message: "Invalid file id",
+            });
+            return;
+        }
 
-            if (
-                !(await isRoomMember(
-                    roomId,
-                    req.userId
-                ))
-            ) {
-                res.status(403).json({
-                    success: false,
-                    message:
-                        "You are not a member of this room",
-                });
-                return;
-            }
+        const expectedVersion = Number(req.body?.expectedVersion);
 
-            // ==================================
-            // ROOM STATUS
-            // ==================================
+        if (!Number.isInteger(expectedVersion) || expectedVersion < 1) {
+            res.status(400).json({
+                success: false,
+                message: "A valid expectedVersion is required",
+            });
+            return;
+        }
 
-            const room =
-                await Room.findOne({
-                    roomId,
-                }).select("status");
-
-            if (!room) {
-                res.status(404).json({
-                    success: false,
-                    message:
-                        "Room not found",
-                });
-                return;
-            }
-
-            if (
-                room.status ===
-                "completed"
-            ) {
-                res.status(400).json({
-                    success: false,
-                    message:
-                        "Completed rooms are read-only",
-                });
-                return;
-            }
-
-            // ==================================
-            // CONTENT VALIDATION
-            // ==================================
-
-            if (
-                typeof req.body
-                    ?.content !==
-                "string"
-            ) {
-                res.status(400).json({
-                    success: false,
-                    message:
-                        "Content must be a string",
-                });
-                return;
-            }
-
-            if (
-                req.body.content.length >
-                MAX_FILE_CONTENT
-            ) {
-                res.status(400).json({
-                    success: false,
-                    message:
-                        "File is too large",
-                });
-                return;
-            }
-
-            // ==================================
-            // FILE ID VALIDATION
-            // ==================================
-
-            if (
-                !mongooseIdValid(
-                    fileId
-                )
-            ) {
-                res.status(400).json({
-                    success: false,
-                    message:
-                        "Invalid file id",
-                });
-                return;
-            }
-
-            // ==================================
-            // VERSION VALIDATION
-            // ==================================
-
-            const expectedVersion =
-                Number(
-                    req.body
-                        ?.expectedVersion
-                );
-
-            if (
-                !Number.isInteger(
-                    expectedVersion
-                ) ||
-                expectedVersion < 1
-            ) {
-                res.status(400).json({
-                    success: false,
-                    message:
-                        "A valid expectedVersion is required",
-                });
-                return;
-            }
-
-            // ==================================
-            // MIGRATE OLD FILE
-            // ==================================
-            //
-            // Files created before version
-            // tracking existed may not have
-            // "version" in MongoDB.
-            //
-            // Initialize those files to 1.
-            //
-
-            await RoomFile.updateOne(
-                {
-                    _id: fileId,
-                    roomId,
-                    version: {
-                        $exists: false,
-                    },
-                },
-                {
-                    $set: {
-                        version: 1,
-                    },
-                }
-            );
-
-            // ==================================
-            // ATOMIC COMPARE + UPDATE
-            // ==================================
-            //
-            // MongoDB performs the update only
-            // when:
-            //
-            // database version ===
-            // expectedVersion
-            //
-            // If successful:
-            //
-            // version 5 -> version 6
-            //
-            // If another user already changed it:
-            //
-            // database version = 6
-            // expectedVersion  = 5
-            //
-            // => no match
-            // => 409 Conflict
-            //
-
-            const file =
-                await RoomFile.findOneAndUpdate(
+        const result = await withWritableRoomTransaction(
+            roomId,
+            req.userId,
+            async (session) => {
+                // Initialize legacy files before the compare-and-update.
+                await RoomFile.updateOne(
                     {
                         _id: fileId,
                         roomId,
-                        version:
-                            expectedVersion,
+                        version: { $exists: false },
                     },
+                    {
+                        $set: { version: 1 },
+                    },
+                    { session }
+                );
 
+                const file = await RoomFile.findOneAndUpdate(
+                    {
+                        _id: fileId,
+                        roomId,
+                        version: expectedVersion,
+                    },
                     {
                         $set: {
-                            content:
-                                req.body
-                                    .content,
-
-                            size:
-                                req.body
-                                    .content
-                                    .length,
+                            content: req.body.content,
+                            size: req.body.content.length,
                         },
-
-                        $inc: {
-                            version: 1,
-                        },
+                        $inc: { version: 1 },
                     },
-
                     {
                         new: true,
+                        session,
                     }
                 );
 
-            // ==================================
-            // FILE NOT UPDATED
-            // ==================================
-
-            if (!file) {
-                const currentFile =
-                    await RoomFile.findOne({
-                        _id: fileId,
-                        roomId,
-                    }).select(
-                        "_id name path content language size version"
-                    );
-
-                if (!currentFile) {
-                    res.status(404).json({
-                        success: false,
-                        message:
-                            "Room file not found",
-                    });
-                    return;
+                if (file) {
+                    return {
+                        kind: "updated" as const,
+                        file,
+                    };
                 }
 
-                // ==================================
-                // VERSION CONFLICT
-                // ==================================
+                const currentFile = await RoomFile.findOne({
+                    _id: fileId,
+                    roomId,
+                })
+                    .select("_id name path content language size version")
+                    .session(session);
 
-                res.status(409).json({
-                    success: false,
-                    conflict: true,
-                    message:
-                        "File was modified by another user",
+                if (!currentFile) {
+                    return {
+                        kind: "not-found" as const,
+                    };
+                }
+
+                return {
+                    kind: "conflict" as const,
                     file: currentFile,
-                });
-
-                return;
+                };
             }
+        );
 
-            // ==================================
-            // SUCCESS
-            // ==================================
+        if (result.kind !== "saved") {
+            const responses = {
+                missing: {
+                    status: 404,
+                    message: "Room not found",
+                },
+                forbidden: {
+                    status: 403,
+                    message: "You are not a member of this room",
+                },
+                completed: {
+                    status: 400,
+                    message: "Completed rooms are read-only",
+                },
+            } as const;
 
-            res.status(200).json({
-                success: true,
-                file,
-            });
-        } catch (error) {
-            console.error(
-                "Update room file error ❌",
-                error
-            );
-
-            res.status(500).json({
+            const response = responses[result.kind];
+            res.status(response.status).json({
                 success: false,
-                message:
-                    "Internal server error",
+                message: response.message,
             });
+            return;
         }
-    };
+
+        if (result.value.kind === "not-found") {
+            res.status(404).json({
+                success: false,
+                message: "Room file not found",
+            });
+            return;
+        }
+
+        if (result.value.kind === "conflict") {
+            res.status(409).json({
+                success: false,
+                conflict: true,
+                message: "File was modified by another user",
+                file: result.value.file,
+            });
+            return;
+        }
+
+        res.status(200).json({
+            success: true,
+            file: result.value.file,
+        });
+    } catch (error) {
+        console.error("Update room file error ❌", error);
+
+        res.status(500).json({
+            success: false,
+            message: "Internal server error",
+        });
+    }
+};
+

@@ -233,7 +233,6 @@ export const updateRoomCode = async (
                 success: false,
                 message: "Authentication required",
             });
-
             return;
         }
 
@@ -242,7 +241,6 @@ export const updateRoomCode = async (
                 success: false,
                 message: "Code must be a string",
             });
-
             return;
         }
 
@@ -251,43 +249,63 @@ export const updateRoomCode = async (
                 success: false,
                 message: "Code is too large",
             });
-
             return;
         }
 
-        const room = await Room.findOne({
-            roomId,
-        });
-
-        if (!room) {
-            res.status(404).json({
-                success: false,
-                message: "Room not found",
-            });
-
-            return;
-        }
-
-        const isParticipant = room.participants.some(
-            (participant) =>
-                participant.toString() === req.userId
+        // Update only if the authenticated user is a room member
+        // and the room has not been completed.
+        const updatedRoom = await Room.findOneAndUpdate(
+            {
+                roomId,
+                status: { $ne: "completed" },
+                $or: [
+                    { owner: req.userId },
+                    { participants: req.userId },
+                ],
+            },
+            {
+                $set: { code },
+            },
+            {
+                new: true,
+                runValidators: true,
+            }
         );
 
-        const isOwner =
-            room.owner.toString() === req.userId;
+        if (!updatedRoom) {
+            const room = await Room.findOne({ roomId }).select(
+                "owner participants status"
+            );
 
-        if (!isParticipant && !isOwner) {
-            res.status(403).json({
+            if (!room) {
+                res.status(404).json({
+                    success: false,
+                    message: "Room not found",
+                });
+                return;
+            }
+
+            const isMember =
+                room.owner.toString() === req.userId ||
+                room.participants.some(
+                    (participant) =>
+                        participant.toString() === req.userId
+                );
+
+            if (!isMember) {
+                res.status(403).json({
+                    success: false,
+                    message: "You are not a member of this room",
+                });
+                return;
+            }
+
+            res.status(400).json({
                 success: false,
-                message: "You are not a member of this room",
+                message: "Completed rooms are read-only",
             });
-
             return;
         }
-
-        room.code = code;
-
-        await room.save();
 
         res.status(200).json({
             success: true,
@@ -376,37 +394,65 @@ export const updateRoomTestCases = async (
             });
         }
 
-        const room = await Room.findOne({ roomId });
-
-        if (!room) {
-            res.status(404).json({
-                success: false,
-                message: "Room not found",
-            });
-            return;
-        }
-
-        const isParticipant = room.participants.some(
-            (participant) => participant.toString() === req.userId
+        // Update only if the authenticated user is a room member
+        // and the room has not been completed.
+        const updatedRoom = await Room.findOneAndUpdate(
+            {
+                roomId,
+                status: { $ne: "completed" },
+                $or: [
+                    { owner: req.userId },
+                    { participants: req.userId },
+                ],
+            },
+            {
+                $set: { testCases: sanitizedTestCases },
+            },
+            {
+                new: true,
+                runValidators: true,
+            }
         );
 
-        const isOwner = room.owner.toString() === req.userId;
+        if (!updatedRoom) {
+            const room = await Room.findOne({ roomId }).select(
+                "owner participants status"
+            );
 
-        if (!isParticipant && !isOwner) {
-            res.status(403).json({
+            if (!room) {
+                res.status(404).json({
+                    success: false,
+                    message: "Room not found",
+                });
+                return;
+            }
+
+            const isMember =
+                room.owner.toString() === req.userId ||
+                room.participants.some(
+                    (participant) =>
+                        participant.toString() === req.userId
+                );
+
+            if (!isMember) {
+                res.status(403).json({
+                    success: false,
+                    message: "You are not a member of this room",
+                });
+                return;
+            }
+
+            res.status(400).json({
                 success: false,
-                message: "You are not a member of this room",
+                message: "Completed rooms are read-only",
             });
             return;
         }
-
-        room.testCases = sanitizedTestCases;
-        await room.save();
 
         res.status(200).json({
             success: true,
             message: "Test cases saved successfully",
-            testCases: room.testCases,
+            testCases: updatedRoom.testCases,
         });
     } catch (error) {
         console.error("Update room test cases error ❌", error);
@@ -697,25 +743,35 @@ export const startRoom = async (
             return;
         }
 
-        if (room.status !== "waiting") {
+        // Conditional update prevents two concurrent requests from starting
+        // the same waiting room more than once.
+        const startedRoom = await Room.findOneAndUpdate(
+            { _id: room._id, owner: req.userId, status: "waiting" },
+            {
+                $set: {
+                    status: "active",
+                    interviewStartedAt: room.interviewMode ? new Date() : null,
+                },
+            },
+            { new: true }
+        );
+
+        if (!startedRoom) {
+            const latestRoom = await Room.findById(room._id).select("status");
             res.status(400).json({
                 success: false,
-                message: `Room cannot be started because it is already ${room.status}`,
+                message: `Room cannot be started because it is already ${latestRoom?.status ?? "unavailable"}`,
             });
             return;
         }
 
-        room.status = "active";
-        room.interviewStartedAt = room.interviewMode ? new Date() : null;
-        await room.save();
-
         res.status(200).json({
             success: true,
             message: "Room session started successfully",
-            status: room.status,
-            interviewMode: room.interviewMode,
-            interviewDurationMinutes: room.interviewDurationMinutes,
-            interviewStartedAt: room.interviewStartedAt,
+            status: startedRoom.status,
+            interviewMode: startedRoom.interviewMode,
+            interviewDurationMinutes: startedRoom.interviewDurationMinutes,
+            interviewStartedAt: startedRoom.interviewStartedAt,
         });
     } catch (error) {
         console.error("Start room error ❌", error);
@@ -751,21 +807,26 @@ export const completeRoom = async (
             return;
         }
 
-        if (room.status !== "active") {
+        // Only the request that observes status=active can complete it.
+        const completedRoom = await Room.findOneAndUpdate(
+            { _id: room._id, owner: req.userId, status: "active" },
+            { $set: { status: "completed" } },
+            { new: true }
+        );
+
+        if (!completedRoom) {
+            const latestRoom = await Room.findById(room._id).select("status");
             res.status(400).json({
                 success: false,
-                message: `Room cannot be completed because it is ${room.status}`,
+                message: `Room cannot be completed because it is ${latestRoom?.status ?? "unavailable"}`,
             });
             return;
         }
 
-        room.status = "completed";
-        await room.save();
-
         res.status(200).json({
             success: true,
             message: "Room session completed successfully",
-            status: room.status,
+            status: completedRoom.status,
         });
     } catch (error) {
         console.error("Complete room error ❌", error);
@@ -785,20 +846,14 @@ export const reopenRoom = async (
         const { roomId } = req.params;
 
         if (!req.userId) {
-            res.status(401).json({
-                success: false,
-                message: "Authentication required",
-            });
+            res.status(401).json({ success: false, message: "Authentication required" });
             return;
         }
 
         const room = await Room.findOne({ roomId });
 
         if (!room) {
-            res.status(404).json({
-                success: false,
-                message: "Room not found",
-            });
+            res.status(404).json({ success: false, message: "Room not found" });
             return;
         }
 
@@ -810,21 +865,26 @@ export const reopenRoom = async (
             return;
         }
 
-        if (room.status !== "completed") {
+        // Prevent a stale reopen request from overwriting a newer room state.
+        const reopenedRoom = await Room.findOneAndUpdate(
+            { _id: room._id, owner: req.userId, status: "completed" },
+            { $set: { status: "waiting" } },
+            { new: true }
+        );
+
+        if (!reopenedRoom) {
+            const latestRoom = await Room.findById(room._id).select("status");
             res.status(400).json({
                 success: false,
-                message: `Room cannot be reopened because it is ${room.status}`,
+                message: `Room cannot be reopened because it is ${latestRoom?.status ?? "unavailable"}`,
             });
             return;
         }
 
-        room.status = "waiting";
-        await room.save();
-
         res.status(200).json({
             success: true,
             message: "Room reopened successfully",
-            status: room.status,
+            status: reopenedRoom.status,
         });
     } catch (error) {
         console.error("Reopen room error ❌", error);

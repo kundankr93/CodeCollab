@@ -3322,7 +3322,7 @@
     font-weight: 600;
 }
 
-.interview-room .interview-timer-panel {
+.coding-room .interview-timer-panel {
     display: flex;
     align-items: center;
     justify-content: space-between;
@@ -3335,25 +3335,25 @@
     box-shadow: 0 8px 28px rgba(0, 0, 0, 0.25);
 }
 
-.interview-room .interview-timer-info {
+.coding-room .interview-timer-info {
     display: flex;
     flex-direction: column;
     gap: 6px;
 }
 
-.interview-room .interview-timer-label {
+.coding-room .interview-timer-label {
     color: #d9bdff;
     font-size: 12px;
     font-weight: 700;
     letter-spacing: 1.5px;
 }
 
-.interview-room .interview-timer-status {
+.coding-room .interview-timer-status {
     color: #b8aec8;
     font-size: 14px;
 }
 
-.interview-room .interview-timer-value {
+.coding-room .interview-timer-value {
     color: #ffffff;
     font-size: 38px;
     font-weight: 700;
@@ -3361,24 +3361,237 @@
     letter-spacing: 2px;
 }
 
-.interview-room .interview-timer-duration {
+.coding-room .interview-timer-duration {
     color: #b8aec8;
     font-size: 13px;
     white-space: nowrap;
 }
 
 @media (max-width: 700px) {
-    .interview-room .interview-timer-panel {
+    .coding-room .interview-timer-panel {
         flex-wrap: wrap;
         margin: 12px;
         padding: 16px;
     }
 
-    .interview-room .interview-timer-value {
+    .coding-room .interview-timer-value {
         font-size: 30px;
     }
 
-    .interview-room .interview-timer-duration {
+    .coding-room .interview-timer-duration {
         width: 100%;
+    }
+}
+
+/* =========================================================
+   RESPONSIVE TOPBAR — TARGETED OVERRIDE
+   Keeps the existing room layout and changes only the header.
+========================================================= */
+
+.room-topbar {
+    height: auto !important;
+    min-height: 60px;
+    flex-wrap: wrap;
+    overflow-x: hidden !important;
+    overflow-y: visible !important;
+    align-content: center;
+    row-gap: 8px;
+}
+
+.room-topbar > * {
+    min-width: 0;
+}
+
+.room-brand {
+    flex: 0 1 190px;
+    min-width: 120px;
+    width: auto;
+}
+
+.room-title {
+    flex: 1 1 auto;
+    min-width: 0;
+}
+
+.room-actions {
+    flex: 0 1 auto;
+    min-width: 0;
+    max-width: 100%;
+    margin-left: auto;
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    justify-content: flex-end;
+    gap: 8px;
+    white-space: normal;
+}
+
+.room-actions > button {
+    flex: 0 0 auto;
+    min-width: 0;
+}
+
+/* The interview countdown is the direct div inside room-actions. */
+.room-actions > div {
+    display: inline-flex !important;
+    flex: 0 1 auto !important;
+    flex-direction: row !important;
+    align-items: center !important;
+    justify-content: center !important;
+    gap: 8px !important;
+    min-width: 0 !important;
+    padding: 6px 10px !important;
+    white-space: nowrap;
+}
+
+.room-actions > div > span {
+    white-space: nowrap;
+    line-height: 1;
+}
+
+.room-actions > div > strong {
+    font-size: 19px !important;
+    line-height: 1;
+    white-space: nowrap;
+}
+
+@media (max-width: 1100px) {
+    .room-topbar {
+        padding: 8px 12px;
+        gap: 8px 12px;
+    }
+
+    .room-brand {
+        flex: 0 0 auto;
+        min-width: 0;
+    }
+
+    .room-title {
+        flex: 1 1 180px;
+    }
+
+    .room-actions {
+        flex: 1 1 100%;
+        width: 100%;
+        margin-left: 0;
+        justify-content: flex-start;
+        gap: 7px;
+    }
+}
+
+@media (max-width: 700px) {
+    .room-topbar {
+        min-width: 0 !important;
+        padding: 8px 10px;
+        row-gap: 8px;
+    }
+
+    .room-brand {
+        flex: 0 0 auto;
+        margin-right: 0;
+    }
+
+    .room-title {
+        display: none;
+    }
+
+    .room-actions {
+        flex: 1 1 100%;
+        width: 100%;
+        justify-content: flex-start;
+        gap: 6px;
+    }
+
+    .room-actions button {
+        height: 32px;
+        padding-left: 8px;
+        padding-right: 8px;
+        font-size: 10px;
+    }
+
+    .room-actions > div {
+        gap: 6px !important;
+        padding: 5px 8px !important;
+    }
+
+    .room-actions > div > strong {
+        font-size: 17px !important;
+    }
+}
+
+@media (max-width: 420px) {
+    .room-actions {
+        display: grid;
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+        align-items: stretch;
+        justify-content: stretch;
+    }
+
+    .room-actions > button,
+    .room-actions > div {
+        width: 100%;
+        min-width: 0;
+        justify-content: center;
+    }
+
+    .room-actions > div {
+        grid-column: 1 / -1;
+    }
+}
+
+
+
+/* =========================================================
+   VISUAL POLISH ONLY — DOES NOT CHANGE RESPONSIVE LAYOUT
+   Keep the responsive rules above exactly as they are.
+========================================================= */
+
+/* Refine the existing toolbar buttons without changing their size or layout. */
+.room-actions > button {
+    border: 1px solid rgba(148, 163, 184, 0.18);
+    border-radius: 9px;
+    box-shadow: 0 2px 7px rgba(0, 0, 0, 0.18);
+    transition: filter 160ms ease, box-shadow 160ms ease, background-color 160ms ease;
+}
+
+.room-actions > button:hover:not(:disabled) {
+    filter: brightness(1.12);
+    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.28);
+}
+
+.room-actions > button:active:not(:disabled) {
+    filter: brightness(0.96);
+}
+
+.room-actions > button:focus-visible {
+    outline: 2px solid #a5b4fc;
+    outline-offset: 2px;
+}
+
+/* Interview countdown: preserve its current dimensions and responsive behavior. */
+.room-actions > div {
+    color: #e8eaff;
+    background: linear-gradient(135deg, rgba(99, 102, 241, 0.20), rgba(79, 70, 229, 0.12));
+    border-radius: 10px;
+    box-shadow:
+        inset 0 0 0 1px rgba(129, 140, 248, 0.42),
+        0 3px 10px rgba(0, 0, 0, 0.20);
+}
+
+.room-actions > div > span {
+    color: #c7d2fe;
+    font-weight: 650;
+    letter-spacing: 0.035em;
+}
+
+.room-actions > div > strong {
+    color: #ffffff;
+    font-variant-numeric: tabular-nums;
+    text-shadow: 0 1px 8px rgba(129, 140, 248, 0.28);
+}
+
+@media (prefers-reduced-motion: reduce) {
+    .room-actions > button {
+        transition: none;
     }
 }
