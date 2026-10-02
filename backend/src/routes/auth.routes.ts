@@ -3,6 +3,7 @@ import { Router } from "express";
 import {
     register,
     login,
+    createOwner,
     refreshAccessToken,
     logout,
 } from "../controllers/auth.controller.js";
@@ -11,28 +12,50 @@ import {
 const router = Router();
 
 
-// Register
+// ==========================================
+// REGISTER
+// ==========================================
+
 router.post(
     "/register",
     register
 );
 
 
-// Login
+// ==========================================
+// LOGIN
+// ==========================================
+
 router.post(
     "/login",
     login
 );
 
 
-// Refresh access token
+// ==========================================
+// CREATE OWNER
+// ==========================================
+
+router.post(
+    "/setup-owner",
+    createOwner
+);
+
+
+// ==========================================
+// REFRESH ACCESS TOKEN
+// ==========================================
+
 router.post(
     "/refresh",
     refreshAccessToken
 );
 
 
-// Logout
+// ==========================================
+// LOGOUT
+// ==========================================
+
 router.post(
     "/logout",
     logout

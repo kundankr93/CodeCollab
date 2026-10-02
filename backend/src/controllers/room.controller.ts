@@ -1,8 +1,10 @@
+
 import mongoose from "mongoose";
 import { Response } from "express";
 import { v4 as uuidv4 } from "uuid";
 
 import { Room } from "../models/Room.js";
+import type { RoomTestCase } from "../models/Room.js";
 import { ChatMessage } from "../models/ChatMessage.js";
 import { AuthRequest } from "../middleware/auth.middleware.js";
 
@@ -15,7 +17,13 @@ export const createRoom = async (
     res: Response
 ): Promise<void> => {
     try {
-        const { name, language, code } = req.body;
+        const {
+            name,
+            language,
+            code,
+            interviewMode = false,
+            interviewDurationMinutes = 60,
+        } = req.body;
 
         if (!name) {
             res.status(400).json({
@@ -35,6 +43,27 @@ export const createRoom = async (
             return;
         }
 
+        if (typeof interviewMode !== "boolean") {
+            res.status(400).json({
+                success: false,
+                message: "interviewMode must be a boolean",
+            });
+            return;
+        }
+
+        if (
+            interviewMode &&
+            (!Number.isInteger(interviewDurationMinutes) ||
+                interviewDurationMinutes < 1 ||
+                interviewDurationMinutes > 240)
+        ) {
+            res.status(400).json({
+                success: false,
+                message: "Interview duration must be a whole number between 1 and 240 minutes",
+            });
+            return;
+        }
+
         const roomId = uuidv4();
 
         const room = await Room.create({
@@ -44,7 +73,13 @@ export const createRoom = async (
             participants: [req.userId],
             language: language || "cpp",
             code: typeof code === "string" ? code : "",
+            testCases: [],
             status: "waiting",
+            interviewMode,
+            interviewDurationMinutes: interviewMode
+                ? interviewDurationMinutes
+                : 60,
+            interviewStartedAt: null,
         });
 
         res.status(201).json({
@@ -56,9 +91,13 @@ export const createRoom = async (
                 name: room.name,
                 language: room.language,
                 code: room.code,
+                testCases: room.testCases,
                 status: room.status,
                 owner: room.owner,
                 participants: room.participants,
+                interviewMode: room.interviewMode,
+                interviewDurationMinutes: room.interviewDurationMinutes,
+                interviewStartedAt: room.interviewStartedAt,
                 createdAt: room.createdAt,
             },
         });
@@ -124,6 +163,15 @@ export const getRoom = async (
     try {
         const { roomId } = req.params;
 
+        if (!req.userId) {
+            res.status(401).json({
+                success: false,
+                message: "Authentication required",
+            });
+
+            return;
+        }
+
         const room = await Room.findOne({
             roomId,
         });
@@ -132,6 +180,23 @@ export const getRoom = async (
             res.status(404).json({
                 success: false,
                 message: "Room not found",
+            });
+
+            return;
+        }
+
+        const isOwner =
+            room.owner.toString() === req.userId;
+
+        const isParticipant = room.participants.some(
+            (participant) =>
+                participant.toString() === req.userId
+        );
+
+        if (!isOwner && !isParticipant) {
+            res.status(403).json({
+                success: false,
+                message: "You are not a member of this room",
             });
 
             return;
@@ -230,6 +295,121 @@ export const updateRoomCode = async (
         });
     } catch (error) {
         console.error("Update room code error ❌", error);
+
+        res.status(500).json({
+            success: false,
+            message: "Internal server error",
+        });
+    }
+};
+
+// ==============================
+// UPDATE ROOM TEST CASES
+// ==============================
+
+export const updateRoomTestCases = async (
+    req: AuthRequest,
+    res: Response
+): Promise<void> => {
+    try {
+        const { roomId } = req.params;
+        const { testCases } = req.body as {
+            testCases?: RoomTestCase[];
+        };
+
+        if (!req.userId) {
+            res.status(401).json({
+                success: false,
+                message: "Authentication required",
+            });
+            return;
+        }
+
+        if (!Array.isArray(testCases)) {
+            res.status(400).json({
+                success: false,
+                message: "Test cases must be an array",
+            });
+            return;
+        }
+
+        if (testCases.length > 20) {
+            res.status(400).json({
+                success: false,
+                message: "Maximum 20 test cases are allowed",
+            });
+            return;
+        }
+
+        const sanitizedTestCases: RoomTestCase[] = [];
+
+        for (const testCase of testCases) {
+            if (
+                !testCase ||
+                typeof testCase.id !== "string" ||
+                typeof testCase.input !== "string" ||
+                typeof testCase.expectedOutput !== "string"
+            ) {
+                res.status(400).json({
+                    success: false,
+                    message: "Invalid test case format",
+                });
+                return;
+            }
+
+            if (
+                testCase.id.length > 100 ||
+                testCase.input.length > 20_000 ||
+                testCase.expectedOutput.length > 20_000
+            ) {
+                res.status(400).json({
+                    success: false,
+                    message: "Test case data is too large",
+                });
+                return;
+            }
+
+            sanitizedTestCases.push({
+                id: testCase.id,
+                input: testCase.input,
+                expectedOutput: testCase.expectedOutput,
+            });
+        }
+
+        const room = await Room.findOne({ roomId });
+
+        if (!room) {
+            res.status(404).json({
+                success: false,
+                message: "Room not found",
+            });
+            return;
+        }
+
+        const isParticipant = room.participants.some(
+            (participant) => participant.toString() === req.userId
+        );
+
+        const isOwner = room.owner.toString() === req.userId;
+
+        if (!isParticipant && !isOwner) {
+            res.status(403).json({
+                success: false,
+                message: "You are not a member of this room",
+            });
+            return;
+        }
+
+        room.testCases = sanitizedTestCases;
+        await room.save();
+
+        res.status(200).json({
+            success: true,
+            message: "Test cases saved successfully",
+            testCases: room.testCases,
+        });
+    } catch (error) {
+        console.error("Update room test cases error ❌", error);
 
         res.status(500).json({
             success: false,
@@ -388,6 +568,266 @@ export const joinRoom = async (
         });
     } catch (error) {
         console.error("Join room error ❌", error);
+
+        res.status(500).json({
+            success: false,
+            message: "Internal server error",
+        });
+    }
+};
+
+// ==============================
+// TOGGLE INTERVIEW MODE
+// ==============================
+
+export const toggleInterviewMode = async (
+    req: AuthRequest,
+    res: Response
+): Promise<void> => {
+    try {
+        const { roomId } = req.params;
+        const { enabled, durationMinutes } = req.body as {
+            enabled?: boolean;
+            durationMinutes?: number;
+        };
+
+        if (!req.userId) {
+            res.status(401).json({
+                success: false,
+                message: "Authentication required",
+            });
+            return;
+        }
+
+        if (typeof enabled !== "boolean") {
+            res.status(400).json({
+                success: false,
+                message: "enabled must be a boolean",
+            });
+            return;
+        }
+
+        const room = await Room.findOne({ roomId });
+
+        if (!room) {
+            res.status(404).json({
+                success: false,
+                message: "Room not found",
+            });
+            return;
+        }
+
+        if (room.owner.toString() !== req.userId) {
+            res.status(403).json({
+                success: false,
+                message: "Only the room owner can change interview mode",
+            });
+            return;
+        }
+
+        if (room.status !== "waiting") {
+            res.status(400).json({
+                success: false,
+                message: "Interview mode can only be changed before the session starts",
+            });
+            return;
+        }
+
+        if (
+            enabled &&
+            (!Number.isInteger(durationMinutes) ||
+                (durationMinutes as number) < 1 ||
+                (durationMinutes as number) > 240)
+        ) {
+            res.status(400).json({
+                success: false,
+                message: "Interview duration must be a whole number between 1 and 240 minutes",
+            });
+            return;
+        }
+
+        room.interviewMode = enabled;
+        if (enabled) {
+            room.interviewDurationMinutes = durationMinutes as number;
+        }
+        room.interviewStartedAt = null;
+        await room.save();
+
+        res.status(200).json({
+            success: true,
+            message: "Interview mode updated successfully",
+            interviewMode: room.interviewMode,
+            interviewDurationMinutes: room.interviewDurationMinutes,
+            interviewStartedAt: room.interviewStartedAt,
+        });
+    } catch (error) {
+        console.error("Toggle interview mode error ❌", error);
+        res.status(500).json({
+            success: false,
+            message: "Internal server error",
+        });
+    }
+};
+
+// ==============================
+// START ROOM SESSION
+// ==============================
+
+export const startRoom = async (
+    req: AuthRequest,
+    res: Response
+): Promise<void> => {
+    try {
+        const { roomId } = req.params;
+
+        if (!req.userId) {
+            res.status(401).json({ success: false, message: "Authentication required" });
+            return;
+        }
+
+        const room = await Room.findOne({ roomId });
+
+        if (!room) {
+            res.status(404).json({ success: false, message: "Room not found" });
+            return;
+        }
+
+        if (room.owner.toString() !== req.userId) {
+            res.status(403).json({ success: false, message: "Only the room owner can start the session" });
+            return;
+        }
+
+        if (room.status !== "waiting") {
+            res.status(400).json({
+                success: false,
+                message: `Room cannot be started because it is already ${room.status}`,
+            });
+            return;
+        }
+
+        room.status = "active";
+        room.interviewStartedAt = room.interviewMode ? new Date() : null;
+        await room.save();
+
+        res.status(200).json({
+            success: true,
+            message: "Room session started successfully",
+            status: room.status,
+            interviewMode: room.interviewMode,
+            interviewDurationMinutes: room.interviewDurationMinutes,
+            interviewStartedAt: room.interviewStartedAt,
+        });
+    } catch (error) {
+        console.error("Start room error ❌", error);
+        res.status(500).json({ success: false, message: "Internal server error" });
+    }
+};
+
+// ==============================
+// COMPLETE ROOM SESSION
+// ==============================
+
+export const completeRoom = async (
+    req: AuthRequest,
+    res: Response
+): Promise<void> => {
+    try {
+        const { roomId } = req.params;
+
+        if (!req.userId) {
+            res.status(401).json({ success: false, message: "Authentication required" });
+            return;
+        }
+
+        const room = await Room.findOne({ roomId });
+
+        if (!room) {
+            res.status(404).json({ success: false, message: "Room not found" });
+            return;
+        }
+
+        if (room.owner.toString() !== req.userId) {
+            res.status(403).json({ success: false, message: "Only the room owner can end the session" });
+            return;
+        }
+
+        if (room.status !== "active") {
+            res.status(400).json({
+                success: false,
+                message: `Room cannot be completed because it is ${room.status}`,
+            });
+            return;
+        }
+
+        room.status = "completed";
+        await room.save();
+
+        res.status(200).json({
+            success: true,
+            message: "Room session completed successfully",
+            status: room.status,
+        });
+    } catch (error) {
+        console.error("Complete room error ❌", error);
+        res.status(500).json({ success: false, message: "Internal server error" });
+    }
+};
+
+// ==============================
+// REOPEN ROOM SESSION
+// ==============================
+
+export const reopenRoom = async (
+    req: AuthRequest,
+    res: Response
+): Promise<void> => {
+    try {
+        const { roomId } = req.params;
+
+        if (!req.userId) {
+            res.status(401).json({
+                success: false,
+                message: "Authentication required",
+            });
+            return;
+        }
+
+        const room = await Room.findOne({ roomId });
+
+        if (!room) {
+            res.status(404).json({
+                success: false,
+                message: "Room not found",
+            });
+            return;
+        }
+
+        if (room.owner.toString() !== req.userId) {
+            res.status(403).json({
+                success: false,
+                message: "Only the room owner can reopen the room",
+            });
+            return;
+        }
+
+        if (room.status !== "completed") {
+            res.status(400).json({
+                success: false,
+                message: `Room cannot be reopened because it is ${room.status}`,
+            });
+            return;
+        }
+
+        room.status = "waiting";
+        await room.save();
+
+        res.status(200).json({
+            success: true,
+            message: "Room reopened successfully",
+            status: room.status,
+        });
+    } catch (error) {
+        console.error("Reopen room error ❌", error);
 
         res.status(500).json({
             success: false,

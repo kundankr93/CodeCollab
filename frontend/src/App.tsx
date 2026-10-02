@@ -1,3 +1,4 @@
+
 import {
     BrowserRouter,
     Routes,
@@ -15,65 +16,70 @@ import Dashboard from "./pages/Dashboard";
 import Rooms from "./pages/Rooms";
 import CodingRoom from "./pages/CodingRoom";
 import Projects from "./pages/Projects";
+import OwnerDashboard from "./pages/OwnerDashboard";
+import OwnerRoomDetails from "./pages/OwnerRoomDetails";
 
 function App() {
     return (
         <BrowserRouter>
             <AuthProvider>
                 <Routes>
-                    {/* PUBLIC ROUTES */}
-
                     <Route
                         path="/login"
-                        element={
-                            <Login />
-                        }
+                        element={<Login />}
                     />
 
                     <Route
                         path="/register"
-                        element={
-                            <Register />
-                        }
+                        element={<Register />}
                     />
 
-                    {/* PROTECTED ROUTES */}
-
-                    <Route
-                        element={
-                            <ProtectedRoute />
-                        }
-                    >
+                    <Route element={<ProtectedRoute />}>
                         <Route
                             path="/dashboard"
-                            element={
-                                <Dashboard />
-                            }
+                            element={<Dashboard />}
                         />
 
                         <Route
                             path="/rooms"
-                            element={
-                                <Rooms />
-                            }
+                            element={<Rooms />}
                         />
 
+                        {/* Coding Room */}
                         <Route
                             path="/rooms/:roomId"
-                            element={
-                                <CodingRoom />
-                            }
+                            element={<CodingRoom />}
+                        />
+
+                        {/* Interview Room */}
+                        <Route
+                            path="/interview-rooms/:roomId"
+                            element={<CodingRoom />}
                         />
 
                         <Route
                             path="/projects"
-                            element={
-                                <Projects />
-                            }
+                            element={<Projects />}
                         />
-                    </Route>
 
-                    {/* DEFAULT ROUTE */}
+                        <Route
+                            element={
+                                <ProtectedRoute
+                                    allowedRoles={["owner"]}
+                                />
+                            }
+                        >
+                            <Route
+                                path="/owner"
+                                element={<OwnerDashboard />}
+                            />
+
+                            <Route
+                                path="/owner/rooms/:roomId"
+                                element={<OwnerRoomDetails />}
+                            />
+                        </Route>
+                    </Route>
 
                     <Route
                         path="*"

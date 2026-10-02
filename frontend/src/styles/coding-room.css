@@ -32,14 +32,22 @@
     position: sticky;
     top: 0;
     z-index: 20;
+
+    /* Never squeeze the header controls into each other. */
+    overflow-x: auto;
+    overflow-y: hidden;
+    scrollbar-width: thin;
 }
 
 
 .room-brand {
     width: 230px;
+    flex: 0 0 230px;
+
     display: flex;
     align-items: center;
     gap: 10px;
+
     font-size: 17px;
     font-weight: 700;
 }
@@ -63,6 +71,9 @@
     display: flex;
     align-items: center;
     gap: 12px;
+
+    flex: 0 0 auto;
+    white-space: nowrap;
 }
 
 
@@ -87,17 +98,29 @@
     display: flex;
     align-items: center;
     gap: 10px;
+
+    flex: 0 0 auto;
+    white-space: nowrap;
+}
+
+
+.room-actions > * {
+    flex: 0 0 auto;
 }
 
 
 .room-actions button {
     height: 34px;
+    min-width: max-content;
+    flex: 0 0 auto;
+
     padding: 0 13px;
 
     border-radius: 6px;
     cursor: pointer;
 
     font-size: 11px;
+    white-space: nowrap;
 }
 
 
@@ -635,6 +658,20 @@
 
     .participants-panel {
         width: 180px;
+    }
+
+    .room-brand {
+        width: 170px;
+        flex-basis: 170px;
+    }
+
+    .room-actions {
+        gap: 7px;
+    }
+
+    .room-actions button {
+        padding-left: 10px;
+        padding-right: 10px;
     }
 
 }
@@ -3027,4 +3064,321 @@
 .participant-status-dot {
     width: 7px !important;
     height: 7px !important;
+}
+
+/* =========================
+   ROOM LIFECYCLE
+========================= */
+
+.room-status-badge {
+    display: inline-flex;
+    align-items: center;
+    padding: 4px 9px !important;
+    border-radius: 999px !important;
+    font-size: 10px !important;
+    font-weight: 700;
+    white-space: nowrap;
+}
+
+.room-status-badge.waiting {
+    background: #2a2412 !important;
+    color: #facc15 !important;
+}
+
+.room-status-badge.active {
+    background: #10291b !important;
+    color: #4ade80 !important;
+}
+
+.room-status-badge.completed {
+    background: #2a1517 !important;
+    color: #f87171 !important;
+}
+
+.start-session-button {
+    background: #166534;
+    border: 1px solid #22c55e;
+    color: #ffffff;
+    font-weight: 700;
+}
+
+.start-session-button:hover {
+    background: #15803d;
+}
+
+.end-session-button {
+    background: #7f1d1d;
+    border: 1px solid #ef4444;
+    color: #ffffff;
+    font-weight: 700;
+}
+
+.end-session-button:hover {
+    background: #991b1b;
+}
+
+.reopen-session-button {
+    background: #1e3a8a;
+    border: 1px solid #3b82f6;
+    color: #ffffff;
+    font-weight: 700;
+}
+
+.reopen-session-button:hover {
+    background: #1d4ed8;
+}
+
+.reopen-session-button:disabled {
+    opacity: 0.6;
+    cursor: not-allowed;
+}
+
+.start-session-button:disabled,
+.end-session-button:disabled {
+    opacity: 0.6;
+    cursor: not-allowed;
+}
+
+.room-completed-banner {
+    width: 100%;
+    box-sizing: border-box;
+    padding: 9px 16px;
+    background: #24171a;
+    border-bottom: 1px solid #6e2b30;
+    color: #fca5a5;
+    font-size: 11px;
+    line-height: 1.4;
+}
+
+/* Keep reply composer above the chat composer without breaking layout. */
+.chat-input-area {
+    display: grid !important;
+    grid-template-columns: minmax(0, 1fr) 38px !important;
+    grid-template-rows: auto auto !important;
+    align-items: end !important;
+    column-gap: 7px !important;
+    row-gap: 7px !important;
+}
+
+.chat-input-area > .chat-reply-composer {
+    grid-column: 1 / -1 !important;
+    grid-row: 1 !important;
+}
+
+.chat-input-area > .chat-composer {
+    grid-column: 1 !important;
+    grid-row: 2 !important;
+}
+
+.chat-input-area > .chat-send-button {
+    grid-column: 2 !important;
+    grid-row: 2 !important;
+}
+
+
+/* =========================
+   FILE UPLOAD BUTTON
+========================= */
+
+.panel-header button:disabled {
+    opacity: 0.35;
+    cursor: not-allowed;
+}
+
+.file-item span:last-child {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+/* =========================================================
+   INTERVIEW TIMER + RESPONSIVE TOPBAR FIX
+========================================================= */
+
+.room-topbar {
+    overflow-x: auto;
+    overflow-y: hidden;
+    scrollbar-width: thin;
+}
+
+.room-topbar > * {
+    flex-shrink: 0;
+}
+
+.room-brand,
+.room-title,
+.room-actions {
+    flex-shrink: 0;
+}
+
+.room-actions {
+    white-space: nowrap;
+}
+
+.room-actions > button,
+.room-actions > div {
+    flex-shrink: 0;
+    white-space: nowrap;
+}
+
+.room-actions button {
+    white-space: nowrap;
+}
+
+@media (max-width: 1100px) {
+    .room-topbar {
+        padding: 0 10px;
+        gap: 10px;
+    }
+
+    .room-brand {
+        width: auto;
+        min-width: 150px;
+    }
+
+    .room-title {
+        gap: 7px;
+    }
+
+    .room-title h2 {
+        max-width: 110px;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+    }
+
+    .room-actions {
+        margin-left: auto;
+        gap: 7px;
+    }
+
+    .room-actions button {
+        padding: 0 10px;
+    }
+}
+
+@media (max-width: 800px) {
+    .room-topbar {
+        min-width: max-content;
+    }
+}
+
+/* ============================================================
+   INTERVIEW DURATION CONTROL
+   ============================================================ */
+.interview-duration-select {
+    flex: 0 0 auto;
+    min-width: 92px;
+    height: 36px;
+    padding: 0 10px;
+    border: 1px solid #374151;
+    border-radius: 8px;
+    background: #171a21;
+    color: #d1d5db;
+    font-size: 12px;
+    font-weight: 700;
+    outline: none;
+    cursor: pointer;
+    white-space: nowrap;
+}
+
+.interview-duration-select:focus {
+    border-color: #6366f1;
+    box-shadow: 0 0 0 2px rgba(99, 102, 241, 0.18);
+}
+
+@media (max-width: 900px) {
+    .interview-duration-select {
+        min-width: 84px;
+        font-size: 11px;
+        padding: 0 7px;
+    }
+}
+
+/* =========================================
+   INTERVIEW ROOM DESIGN
+========================================= */
+
+.interview-room {
+    background: #0d0b16;
+}
+
+.interview-room .room-topbar {
+    background: #171124;
+    border-bottom: 1px solid #49336b;
+}
+
+.interview-room .interview-room-badge {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    padding: 5px 10px;
+    margin-left: 10px;
+    border-radius: 20px;
+    background: #302044;
+    border: 1px solid #7652b5;
+    color: #d9bdff;
+    font-size: 12px;
+    font-weight: 600;
+}
+
+.interview-room .interview-timer-panel {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 20px;
+    margin: 16px 20px;
+    padding: 18px 24px;
+    border: 1px solid #7652b5;
+    border-radius: 14px;
+    background: linear-gradient(110deg, #211633, #171124);
+    box-shadow: 0 8px 28px rgba(0, 0, 0, 0.25);
+}
+
+.interview-room .interview-timer-info {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+}
+
+.interview-room .interview-timer-label {
+    color: #d9bdff;
+    font-size: 12px;
+    font-weight: 700;
+    letter-spacing: 1.5px;
+}
+
+.interview-room .interview-timer-status {
+    color: #b8aec8;
+    font-size: 14px;
+}
+
+.interview-room .interview-timer-value {
+    color: #ffffff;
+    font-size: 38px;
+    font-weight: 700;
+    font-variant-numeric: tabular-nums;
+    letter-spacing: 2px;
+}
+
+.interview-room .interview-timer-duration {
+    color: #b8aec8;
+    font-size: 13px;
+    white-space: nowrap;
+}
+
+@media (max-width: 700px) {
+    .interview-room .interview-timer-panel {
+        flex-wrap: wrap;
+        margin: 12px;
+        padding: 16px;
+    }
+
+    .interview-room .interview-timer-value {
+        font-size: 30px;
+    }
+
+    .interview-room .interview-timer-duration {
+        width: 100%;
+    }
 }

@@ -1,21 +1,53 @@
-import { Navigate, Outlet } from "react-router-dom";
+import {
+    Navigate,
+    Outlet,
+} from "react-router-dom";
 
-import { useAuth } from "../context/AuthContext";
+import {
+    useAuth,
+    type UserRole,
+} from "../context/AuthContext";
+
+interface ProtectedRouteProps {
+    allowedRoles?: UserRole[];
+}
+
+const ProtectedRoute = ({
+    allowedRoles,
+}: ProtectedRouteProps) => {
+
+    const {
+        user,
+        loading,
+    } = useAuth();
 
 
-const ProtectedRoute = () => {
-
-    const { user, loading } = useAuth();
-
+    // ==========================================
+    // AUTHENTICATION LOADING
+    // ==========================================
 
     if (loading) {
         return (
-            <div>
+            <div
+                style={{
+                    minHeight: "100vh",
+                    display: "flex",
+                    alignItems: "center",
+                    justifyContent: "center",
+                    background: "#080914",
+                    color: "#ffffff",
+                    fontSize: "18px",
+                }}
+            >
                 Loading...
             </div>
         );
     }
 
+
+    // ==========================================
+    // USER NOT LOGGED IN
+    // ==========================================
 
     if (!user) {
         return (
@@ -27,8 +59,30 @@ const ProtectedRoute = () => {
     }
 
 
+    // ==========================================
+    // ROLE AUTHORIZATION
+    // ==========================================
+
+    if (
+        allowedRoles &&
+        !allowedRoles.includes(
+            user.role
+        )
+    ) {
+        return (
+            <Navigate
+                to="/dashboard"
+                replace
+            />
+        );
+    }
+
+
+    // ==========================================
+    // AUTHORIZED
+    // ==========================================
+
     return <Outlet />;
 };
-
 
 export default ProtectedRoute;

@@ -17,6 +17,7 @@ import roomRoutes from "./routes/room.routes.js";
 import projectRoutes from "./routes/project.routes.js";
 import codeExecutionRoutes from "./routes/codeExecution.routes.js";
 import testCaseRoutes from "./routes/testCase.routes.js";
+import ownerRoutes from "./routes/owner.routes.js";
 
 import { initializeSocket } from "./socket.js";
 
@@ -82,6 +83,15 @@ const io = new Server(
         },
     }
 );
+
+/*
+ * Make Socket.IO available to HTTP
+ * controllers.
+ *
+ * Owner room deletion uses this to
+ * broadcast "room-deleted".
+ */
+app.set("io", io);
 
 /*
  * ==========================================
@@ -162,7 +172,9 @@ app.use(
  */
 
 app.use(
-    express.json()
+    express.json({
+        limit: "10mb",
+    })
 );
 
 /*
@@ -249,6 +261,22 @@ app.use(
 app.use(
     "/api/test-cases",
     testCaseRoutes
+);
+
+/*
+ * ==========================================
+ * OWNER ROUTES
+ * ==========================================
+ *
+ * This is the missing registration that
+ * caused:
+ *
+ * Route not found: GET /api/owner/rooms
+ */
+
+app.use(
+    "/api/owner",
+    ownerRoutes
 );
 
 /*

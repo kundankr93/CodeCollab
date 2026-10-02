@@ -1,3 +1,4 @@
+
 import { useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
 
@@ -348,17 +349,15 @@ const Dashboard = () => {
 
                     <button
                         className="nav-item"
-                        disabled
+                        onClick={() =>
+                            navigate("/rooms?type=interview")
+                        }
                     >
                         <InterviewIcon />
 
                         <span>
                             Interviews
                         </span>
-
-                        <small>
-                            Soon
-                        </small>
                     </button>
 
 
@@ -392,6 +391,35 @@ const Dashboard = () => {
                             Soon
                         </small>
                     </button>
+
+
+                    {/* OWNER DASHBOARD */}
+
+                    {user?.role === "owner" && (
+                        <button
+                            className="nav-item"
+                            onClick={() =>
+                                navigate("/owner")
+                            }
+                        >
+                            <span
+                                style={{
+                                    width: "20px",
+                                    height: "20px",
+                                    display: "inline-flex",
+                                    alignItems: "center",
+                                    justifyContent: "center",
+                                    fontSize: "16px",
+                                }}
+                            >
+                                👑
+                            </span>
+
+                            <span>
+                                Owner Dashboard
+                            </span>
+                        </button>
+                    )}
 
                 </nav>
 
@@ -732,7 +760,12 @@ const Dashboard = () => {
 
                         {/* INTERVIEW */}
 
-                        <div className="quick-action-card disabled">
+                        <button
+                            className="quick-action-card"
+                            onClick={() =>
+                                navigate("/rooms?type=interview")
+                            }
+                        >
 
                             <div className="quick-action-icon violet">
                                 <InterviewIcon />
@@ -742,10 +775,6 @@ const Dashboard = () => {
 
                                 <h3>
                                     Start Interview
-
-                                    <small>
-                                        SOON
-                                    </small>
                                 </h3>
 
                                 <p>
@@ -753,12 +782,13 @@ const Dashboard = () => {
                                 </p>
 
                                 <span>
-                                    Coming soon
+                                    Open Interview Room
+                                    <ArrowIcon />
                                 </span>
 
                             </div>
 
-                        </div>
+                        </button>
 
 
                         {/* PROBLEMS */}

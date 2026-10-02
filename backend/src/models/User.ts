@@ -1,6 +1,10 @@
 import mongoose, { Document, Schema } from "mongoose";
 
-export type UserRole = "student" | "interviewer" | "admin";
+export type UserRole =
+    | "student"
+    | "interviewer"
+    | "admin"
+    | "owner";
 
 export interface IUser extends Document {
     name: string;
@@ -39,20 +43,29 @@ const userSchema = new Schema<IUser>(
 
         role: {
             type: String,
-            enum: ["student", "interviewer", "admin"],
+            enum: [
+                "student",
+                "interviewer",
+                "admin",
+                "owner",
+            ],
             default: "student",
         },
 
         avatar: {
             type: String,
         },
+
         refreshToken: {
-    type: String,
-},
+            type: String,
+        },
     },
     {
         timestamps: true,
     }
 );
 
-export const User = mongoose.model<IUser>("User", userSchema);
+export const User = mongoose.model<IUser>(
+    "User",
+    userSchema
+);
