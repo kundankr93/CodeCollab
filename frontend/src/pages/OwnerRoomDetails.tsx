@@ -81,7 +81,7 @@ interface RoomPresence {
     onlineParticipantCount: number;
 }
 
-const socketUrl = "http://https://codecollab-backend-se0p.onrender.com";
+const socketUrl = "https://codecollab-backend-se0p.onrender.com";
 
 const cardStyle: CSSProperties = {
     background: "#111321",

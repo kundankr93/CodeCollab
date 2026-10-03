@@ -1383,7 +1383,7 @@ int main() {
             ]);
 
             newSocket = io(
-                "http://https://codecollab-backend-se0p.onrender.com",
+                "https://codecollab-backend-se0p.onrender.com",
                 {
                     auth: {
                         token:
