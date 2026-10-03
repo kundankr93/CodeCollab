@@ -592,7 +592,7 @@ selectionEndColumn:
 
     useEffect(() => {
         const socket = io(
-            "http://localhost:5000",
+            "http://https://codecollab-backend-se0p.onrender.com",
             {
                 auth: {
                     token: localStorage.getItem("accessToken"),

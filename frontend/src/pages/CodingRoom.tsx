@@ -218,7 +218,7 @@ const getFreshSocketAccessToken =
              */
             const response =
                 await axios.post(
-                    "http://localhost:5000/api/auth/refresh",
+                    "http://https://codecollab-backend-se0p.onrender.com/api/auth/refresh",
                     {
                         refreshToken,
                     },
@@ -1383,7 +1383,7 @@ int main() {
             ]);
 
             newSocket = io(
-                "http://localhost:5000",
+                "http://https://codecollab-backend-se0p.onrender.com",
                 {
                     auth: {
                         token:
