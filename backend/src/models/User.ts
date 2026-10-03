@@ -13,6 +13,8 @@ export interface IUser extends Document {
     role: UserRole;
     avatar?: string;
     refreshToken?: string;
+    passwordResetToken?: string;
+    passwordResetExpires?: Date;
     createdAt: Date;
     updatedAt: Date;
 }
@@ -26,7 +28,6 @@ const userSchema = new Schema<IUser>(
             minlength: 2,
             maxlength: 50,
         },
-
         email: {
             type: String,
             required: true,
@@ -34,38 +35,23 @@ const userSchema = new Schema<IUser>(
             lowercase: true,
             trim: true,
         },
-
         password: {
             type: String,
             required: true,
             minlength: 6,
         },
-
         role: {
             type: String,
-            enum: [
-                "student",
-                "interviewer",
-                "admin",
-                "owner",
-            ],
+            enum: ["student", "interviewer", "admin", "owner"],
             default: "student",
         },
-
-        avatar: {
-            type: String,
-        },
-
-        refreshToken: {
-            type: String,
-        },
+        avatar: { type: String },
+        refreshToken: { type: String },
+        // Only a SHA-256 hash of the emailed reset token is stored.
+        passwordResetToken: { type: String, select: false },
+        passwordResetExpires: { type: Date, select: false },
     },
-    {
-        timestamps: true,
-    }
+    { timestamps: true }
 );
 
-export const User = mongoose.model<IUser>(
-    "User",
-    userSchema
-);
+export const User = mongoose.model<IUser>("User", userSchema);

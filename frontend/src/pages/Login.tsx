@@ -709,6 +709,10 @@ const Login = () => {
                             </div>
                         </div>
 
+                        <div className="login-forgot-password">
+                            <Link to="/forgot-password">Forgot Password?</Link>
+                        </div>
+
                         {/* Error */}
 
                         {error && (

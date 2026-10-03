@@ -11,6 +11,8 @@ import { AuthProvider } from "./context/AuthContext";
 import ProtectedRoute from "./components/ProtectedRoute";
 
 import Login from "./pages/Login";
+import ForgotPassword from "./pages/ForgetPassword";
+import ResetPassword from "./pages/ResetPassword";
 import Register from "./pages/Register";
 import Dashboard from "./pages/Dashboard";
 import Rooms from "./pages/Rooms";
@@ -33,6 +35,16 @@ function App() {
                     <Route
                         path="/register"
                         element={<Register />}
+                    />
+
+                    <Route
+                        path="/forgot-password"
+                        element={<ForgotPassword />}
+                    />
+
+                    <Route
+                        path="/reset-password"
+                        element={<ResetPassword />}
                     />
 
                     <Route element={<ProtectedRoute />}>

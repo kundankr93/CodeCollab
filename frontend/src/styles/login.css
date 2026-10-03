@@ -1055,3 +1055,8 @@
         font-size: 30px;
     }
 }
+
+/* Forgot password link */
+.login-forgot-password { display: flex; justify-content: flex-end; margin-top: -10px; }
+.login-forgot-password a { color: #aeb5ff; font-size: 13px; text-decoration: none; }
+.login-forgot-password a:hover { color: #fff; text-decoration: underline; }

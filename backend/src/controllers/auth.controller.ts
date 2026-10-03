@@ -644,3 +644,179 @@ export const logout = async (
         });
     }
 };
+
+// ==============================
+// FORGOT PASSWORD
+// ==============================
+
+export const forgotPassword = async (
+    req: Request,
+    res: Response
+): Promise<void> => {
+    try {
+        const email =
+            typeof req.body.email === "string"
+                ? req.body.email.toLowerCase().trim()
+                : "";
+
+        if (!email || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
+            res.status(400).json({
+                success: false,
+                message: "Please provide a valid email address",
+            });
+            return;
+        }
+
+        const resendApiKey = process.env.RESEND_API_KEY;
+        const fromEmail = process.env.RESET_EMAIL_FROM;
+        const frontendUrl = process.env.FRONTEND_URL;
+
+        if (!resendApiKey || !fromEmail || !frontendUrl) {
+            console.error(
+                "Password reset email is not configured. Set RESEND_API_KEY, RESET_EMAIL_FROM and FRONTEND_URL."
+            );
+            res.status(503).json({
+                success: false,
+                message: "Password reset email is temporarily unavailable",
+            });
+            return;
+        }
+
+        // Always return the same public response to avoid account enumeration.
+        const genericMessage =
+            "If an account exists for this email, a password reset link will be sent.";
+        const user = await User.findOne({ email }).select(
+            "+passwordResetToken +passwordResetExpires"
+        );
+
+        if (!user) {
+            res.status(200).json({ success: true, message: genericMessage });
+            return;
+        }
+
+        const rawToken = crypto.randomBytes(32).toString("hex");
+        const tokenHash = crypto
+            .createHash("sha256")
+            .update(rawToken)
+            .digest("hex");
+        const expiresAt = new Date(Date.now() + 15 * 60 * 1000);
+
+        user.passwordResetToken = tokenHash;
+        user.passwordResetExpires = expiresAt;
+        await user.save();
+
+        const resetUrl = new URL("/reset-password", frontendUrl);
+        resetUrl.searchParams.set("token", rawToken);
+
+        const emailResponse = await fetch("https://api.resend.com/emails", {
+            method: "POST",
+            headers: {
+                Authorization: `Bearer ${resendApiKey}`,
+                "Content-Type": "application/json",
+            },
+            body: JSON.stringify({
+                from: fromEmail,
+                to: [user.email],
+                subject: "Reset your CodeCollab password",
+                html: `
+                    <div style="font-family:Arial,sans-serif;line-height:1.6;color:#20243a">
+                        <h2>Reset your CodeCollab password</h2>
+                        <p>We received a request to reset the password for your account.</p>
+                        <p><a href="${resetUrl.toString()}" style="display:inline-block;padding:12px 20px;background:#6557f5;color:#fff;text-decoration:none;border-radius:8px">Reset password</a></p>
+                        <p>This link expires in 15 minutes and can only be used once.</p>
+                        <p>If you did not request this, you can ignore this email.</p>
+                    </div>
+                `,
+            }),
+        });
+
+        if (!emailResponse.ok) {
+            const providerMessage = await emailResponse.text();
+            console.error("Resend email error:", providerMessage);
+            user.passwordResetToken = undefined;
+            user.passwordResetExpires = undefined;
+            await user.save();
+            res.status(502).json({
+                success: false,
+                message: "Unable to send the reset email. Please try again later.",
+            });
+            return;
+        }
+
+        res.status(200).json({ success: true, message: genericMessage });
+    } catch (error) {
+        console.error("Forgot password error:", error);
+        res.status(500).json({
+            success: false,
+            message: "Unable to process the request right now",
+        });
+    }
+};
+
+// ==============================
+// RESET PASSWORD
+// ==============================
+
+export const resetPassword = async (
+    req: Request,
+    res: Response
+): Promise<void> => {
+    try {
+        const { token, password } = req.body;
+
+        if (
+            typeof token !== "string" ||
+            !token.trim() ||
+            typeof password !== "string" ||
+            password.length < 6
+        ) {
+            res.status(400).json({
+                success: false,
+                message: "A valid reset token and a password of at least 6 characters are required",
+            });
+            return;
+        }
+
+        const tokenHash = crypto
+            .createHash("sha256")
+            .update(token)
+            .digest("hex");
+        const hashedPassword = await bcrypt.hash(password, 12);
+
+        // Atomic consume: expired, unknown, or already-used tokens cannot reset again.
+        const user = await User.findOneAndUpdate(
+            {
+                passwordResetToken: tokenHash,
+                passwordResetExpires: { $gt: new Date() },
+            },
+            {
+                $set: { password: hashedPassword },
+                $unset: {
+                    passwordResetToken: 1,
+                    passwordResetExpires: 1,
+                    refreshToken: 1,
+                },
+            },
+            { new: true, runValidators: true }
+        );
+
+        if (!user) {
+            res.status(400).json({
+                success: false,
+                message: "This password reset link is invalid or has expired. Please request a new one.",
+            });
+            return;
+        }
+
+        res.status(200).json({
+            success: true,
+            message: "Password reset successfully. Please sign in with your new password.",
+        });
+    } catch (error) {
+        console.error("Reset password error:", error);
+        res.status(500).json({
+            success: false,
+            message: "Unable to reset password right now",
+        });
+    }
+};

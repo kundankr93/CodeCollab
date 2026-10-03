@@ -6,60 +6,18 @@ import {
     createOwner,
     refreshAccessToken,
     logout,
+    forgotPassword,
+    resetPassword,
 } from "../controllers/auth.controller.js";
-
 
 const router = Router();
 
-
-// ==========================================
-// REGISTER
-// ==========================================
-
-router.post(
-    "/register",
-    register
-);
-
-
-// ==========================================
-// LOGIN
-// ==========================================
-
-router.post(
-    "/login",
-    login
-);
-
-
-// ==========================================
-// CREATE OWNER
-// ==========================================
-
-router.post(
-    "/setup-owner",
-    createOwner
-);
-
-
-// ==========================================
-// REFRESH ACCESS TOKEN
-// ==========================================
-
-router.post(
-    "/refresh",
-    refreshAccessToken
-);
-
-
-// ==========================================
-// LOGOUT
-// ==========================================
-
-router.post(
-    "/logout",
-    logout
-);
-
+router.post("/register", register);
+router.post("/login", login);
+router.post("/forgot-password", forgotPassword);
+router.post("/reset-password", resetPassword);
+router.post("/setup-owner", createOwner);
+router.post("/refresh", refreshAccessToken);
+router.post("/logout", logout);
 
 export default router;
