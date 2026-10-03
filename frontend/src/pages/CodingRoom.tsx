@@ -127,7 +127,6 @@ interface RoomFile {
 
 interface RemoteRoomFileCursor {
     roomId: string;
-    socketId: string;
     userId: string;
     userName: string;
     fileId: string;
@@ -660,18 +659,17 @@ int main() {
                         activeFileId
                 )
                 .map((cursor) => {
-                    const model = editor.getModel();
-                    const lineCount = model?.getLineCount() ?? 1;
-                    const safeLineNumber = Math.min(
-                        Math.max(1, cursor.lineNumber),
-                        lineCount
-                    );
-                    const maxColumn =
-                        model?.getLineMaxColumn(safeLineNumber) ?? 1;
-                    const safeColumn = Math.min(
-                        Math.max(1, cursor.column),
-                        maxColumn
-                    );
+                    const safeLineNumber =
+                        Math.max(
+                            1,
+                            cursor.lineNumber
+                        );
+
+                    const safeColumn =
+                        Math.max(
+                            1,
+                            cursor.column
+                        );
 
                     /*
                      * Use a stable color class based on userId so
@@ -1003,10 +1001,82 @@ int main() {
                         return;
                     }
 
-                    const persistedFiles =
+                    let persistedFiles =
                         Array.isArray(filesResponse.data.files)
                             ? filesResponse.data.files
                             : [];
+
+                    /*
+                     * New rooms start with local starter files. Those files
+                     * do not have MongoDB IDs until they are persisted, so
+                     * file-selection synchronization cannot work yet.
+                     * Create the starter records when this room has none.
+                     */
+                    if (persistedFiles.length === 0) {
+                        const starterFiles = roomFilesRef.current.map(
+                            (file) => ({
+                                name: file.name,
+                                path: file.path,
+                                content:
+                                    file.path === "main.cpp" && loadedRoom.code
+                                        ? loadedRoom.code
+                                        : file.content || "",
+                                language: file.language,
+                            })
+                        );
+
+                        try {
+                            const createFilesResponse = await api.post(
+                                `/rooms/${roomId}/files`,
+                                { files: starterFiles }
+                            );
+
+                            persistedFiles = Array.isArray(
+                                createFilesResponse.data.files
+                            )
+                                ? createFilesResponse.data.files
+                                : [];
+                        } catch (createFilesError) {
+                            // Another participant may have initialized the
+                            // same room at the same time. Re-read after a
+                            // failed create so this client can still obtain
+                            // the authoritative file IDs.
+                            console.warn(
+                                "Starter file creation failed; reloading room files:",
+                                createFilesError
+                            );
+
+                            const retryFilesResponse = await api.get(
+                                `/rooms/${roomId}/files`
+                            );
+
+                            persistedFiles = Array.isArray(
+                                retryFilesResponse.data.files
+                            )
+                                ? retryFilesResponse.data.files
+                                : [];
+                        }
+
+                        const starterContentByPath = new Map(
+                            starterFiles.map((file) => [
+                                file.path,
+                                file.content,
+                            ])
+                        );
+
+                        // The list endpoint returns file metadata, not file
+                        // content. Keep the starter content in this client
+                        // while attaching the persistent MongoDB IDs.
+                        persistedFiles = persistedFiles.map(
+                            (file: RoomFile) => ({
+                                ...file,
+                                content:
+                                    typeof file.content === "string"
+                                        ? file.content
+                                        : starterContentByPath.get(file.path) || "",
+                            })
+                        );
+                    }
 
                     if (persistedFiles.length > 0) {
                         const normalizedFiles: RoomFile[] =
@@ -1042,6 +1112,7 @@ int main() {
 
                         const firstFile = preferredFile;
 
+                        activeFileNameRef.current = firstFile.path;
                         setActiveFileName(firstFile.path);
                         localStorage.setItem(
                             `codecollab-active-file:${roomId}`,
@@ -1470,26 +1541,37 @@ int main() {
                 const isActiveFile =
                     activeFile?._id === data.fileId;
 
+                const isDirty =
+                    roomFileDirtyRef.current.has(
+                        data.fileId
+                    );
+
                 /*
-                 * Apply every accepted live preview to the active editor.
-                 * The previous dirty-check returned early whenever this
-                 * browser had typed before, which left collaborators showing
-                 * stale partial text (for example, "he" instead of "hello").
+                 * Do not overwrite text that this user is
+                 * currently editing.
                  *
-                 * CodeCollab currently uses whole-document, last-update-wins
-                 * synchronization. For predictable results, have one person
-                 * type in a file at a time while others follow. True concurrent
-                 * character-level merging requires an OT/CRDT implementation.
+                 * The remote update is still remembered as a
+                 * conflict. The HTTP save will compare versions
+                 * and retry the local change against the newer
+                 * server version.
+                 */
+                if (isDirty) {
+                    if (isActiveFile) {
+                        setFileConflict(
+                            "Another user changed this file. Your local changes are being synchronized."
+                        );
+                    }
+
+                    return;
+                }
+
+                /*
+                 * This is a clean local editor, so it is safe to
+                 * apply the remote change immediately.
                  */
                 if (isActiveFile) {
                     roomFileRemoteUpdateRef.current = true;
                     setCode(data.code);
-
-                    // Reposition remote cursor decorations after Monaco has
-                    // applied the incoming model value.
-                    window.requestAnimationFrame(() => {
-                        refreshRemoteCursorDecorations();
-                    });
                 }
 
                 setRoomFiles((previous) =>
@@ -1573,9 +1655,8 @@ int main() {
                 if (
                     data.roomId !== roomId ||
                     !data.fileId ||
-                    !data.socketId ||
-                    data.socketId === connectedSocket.id ||
                     !data.userId ||
+                    data.userId === user.id ||
                     !Number.isInteger(
                         data.lineNumber
                     ) ||
@@ -1589,10 +1670,9 @@ int main() {
                 }
 
                 remoteCursorsRef.current.set(
-                    data.socketId,
+                    data.userId,
                     {
                         roomId: data.roomId,
-                        socketId: data.socketId,
                         userId:
                             data.userId,
                         userName:
@@ -1614,27 +1694,16 @@ int main() {
         connectedSocket.on(
             "room-file-user-left",
             (data: {
-                socketId?: string;
-                userId?: string;
-                fileId?: string;
+                userId: string;
+                fileId: string;
             }) => {
-                if (data?.socketId) {
-                    remoteCursorsRef.current.delete(
-                        data.socketId
-                    );
-                } else if (data?.userId) {
-                    // Backward-compatible cleanup for older server events.
-                    for (const [key, cursor] of remoteCursorsRef.current) {
-                        if (
-                            cursor.userId === data.userId &&
-                            (!data.fileId || cursor.fileId === data.fileId)
-                        ) {
-                            remoteCursorsRef.current.delete(key);
-                        }
-                    }
-                } else {
+                if (!data?.userId) {
                     return;
                 }
+
+                remoteCursorsRef.current.delete(
+                    data.userId
+                );
 
                 refreshRemoteCursorDecorations();
             }
@@ -1648,7 +1717,6 @@ int main() {
         connectedSocket.on(
             "room-file-user-joined",
             (data: {
-                socketId?: string;
                 userId: string;
                 fileId: string;
             }) => {
@@ -1659,15 +1727,42 @@ int main() {
                             activeFileNameRef.current
                     )?._id;
 
-                // A second tab/browser may belong to the same account.
-                // Compare socket IDs, not user IDs, to identify this client.
                 if (
-                    data?.socketId &&
-                    data.socketId !== connectedSocket.id &&
-                    data.fileId === currentActiveFileId
+                    data?.userId &&
+                    data.userId !== user.id &&
+                    data.fileId ===
+                        currentActiveFileId
                 ) {
                     window.setTimeout(() => {
-                        emitCurrentCursorPosition();
+                        const editor =
+                            editorRef.current;
+
+                        const position =
+                            editor?.getPosition();
+
+                        if (
+                            !position ||
+                            !socketRef.current ||
+                            !roomId ||
+                            !user
+                        ) {
+                            return;
+                        }
+
+                        socketRef.current.emit(
+                            "room-file-cursor-change",
+                            {
+                                roomId,
+                                fileId:
+                                    currentActiveFileId,
+                                userId: user.id,
+                                userName: user.name,
+                                lineNumber:
+                                    position.lineNumber,
+                                column:
+                                    position.column,
+                            }
+                        );
                     }, 20);
                 }
             }
@@ -2811,7 +2906,8 @@ const handleStartSession = async () => {
         }) => {
             if (
                 data?.roomId !== roomId ||
-                !data.fileId
+                !data.fileId ||
+                data.userId === user?.id
             ) {
                 return;
             }

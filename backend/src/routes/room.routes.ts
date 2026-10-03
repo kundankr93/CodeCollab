@@ -19,6 +19,7 @@ import {
 
 import {
     getRoomFiles,
+    getRoomFileContent,
     upsertRoomFiles,
     updateRoomFile,
 } from "../controllers/roomFile.controller.js";
@@ -30,6 +31,7 @@ router.get("/", authenticate, getMyRooms);
 router.get("/:roomId", authenticate, getRoom);
 
 router.get("/:roomId/files", authenticate, getRoomFiles);
+router.get("/:roomId/files/:fileId", authenticate, getRoomFileContent);
 router.post("/:roomId/files", authenticate, upsertRoomFiles);
 router.put("/:roomId/files/:fileId", authenticate, updateRoomFile);
 
