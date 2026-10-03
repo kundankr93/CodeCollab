@@ -8,7 +8,7 @@ import {
 
 import { useAuth } from "../context/AuthContext";
 
-import "../styles/register.css";
+import "../styles/Register.css";
 
 interface IconProps {
     size?: number;

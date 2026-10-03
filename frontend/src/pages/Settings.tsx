@@ -3,7 +3,7 @@ import { useNavigate } from "react-router-dom";
 
 import api from "../api/axios";
 import { useAuth, type User } from "../context/AuthContext";
-import "../styles/settings.css";
+import "../styles/Settings.css";
 
 type SettingsTab = "profile" | "account" | "security";
 
