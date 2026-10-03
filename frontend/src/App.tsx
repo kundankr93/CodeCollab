@@ -18,6 +18,7 @@ import CodingRoom from "./pages/CodingRoom";
 import Projects from "./pages/Projects";
 import OwnerDashboard from "./pages/OwnerDashboard";
 import OwnerRoomDetails from "./pages/OwnerRoomDetails";
+import Settings from "./pages/Settings";
 
 function App() {
     return (
@@ -60,6 +61,11 @@ function App() {
                         <Route
                             path="/projects"
                             element={<Projects />}
+                        />
+
+                        <Route
+                            path="/settings"
+                            element={<Settings />}
                         />
 
                         <Route

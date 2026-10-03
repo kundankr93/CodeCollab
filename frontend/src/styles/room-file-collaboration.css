@@ -1,102 +1,65 @@
-
 /*
  * CodeCollab — realtime room-file collaboration
- *
- * Remote cursors are intentionally large and bold so they remain
- * easy to see during pair/multi-user coding.
+ * Remote cursors identify collaborators without covering source text.
  */
 
+/* Remote cursor: use a thin visible bar instead of a wide text glyph.
+   A non-zero width prevents the cursor from painting over the character
+   at the same column (especially when the cursor is at column 1). */
 .codecollab-remote-cursor-0::before,
 .codecollab-remote-cursor-1::before,
 .codecollab-remote-cursor-2::before,
 .codecollab-remote-cursor-3::before,
 .codecollab-remote-cursor-4::before,
 .codecollab-remote-cursor-5::before {
-    content: "▋";
+    content: "";
     display: inline-block;
     position: relative;
-    width: 0;
-    margin-left: -2px;
-    margin-right: 2px;
-    font-size: 24px;
-    line-height: 1;
-    font-weight: 900;
-    vertical-align: -3px;
-    z-index: 20;
-    text-shadow:
-        0 0 3px rgba(255, 255, 255, 0.9),
-        0 0 8px currentColor;
+    box-sizing: border-box;
+    width: 2px;
+    height: 1.25em;
+    margin-left: 0;
+    margin-right: 5px;
+    border-radius: 2px;
+    vertical-align: -0.2em;
+    z-index: 3;
+    pointer-events: none;
 }
 
-/*
- * Different users get different cursor/line colors.
- */
-.codecollab-remote-cursor-0::before {
-    color: #22d3ee;
-}
+.codecollab-remote-cursor-0::before { background: #22d3ee; }
+.codecollab-remote-cursor-1::before { background: #f97316; }
+.codecollab-remote-cursor-2::before { background: #a78bfa; }
+.codecollab-remote-cursor-3::before { background: #4ade80; }
+.codecollab-remote-cursor-4::before { background: #f472b6; }
+.codecollab-remote-cursor-5::before { background: #facc15; }
 
-.codecollab-remote-cursor-1::before {
-    color: #f97316;
-}
-
-.codecollab-remote-cursor-2::before {
-    color: #a78bfa;
-}
-
-.codecollab-remote-cursor-3::before {
-    color: #4ade80;
-}
-
-.codecollab-remote-cursor-4::before {
-    color: #f472b6;
-}
-
-.codecollab-remote-cursor-5::before {
-    color: #facc15;
-}
-
-/*
- * Highlight the complete line where another user is currently
- * positioned. This makes it obvious which line they are working on.
- */
+/* Subtle full-line tint plus a narrow colored edge: source text stays clear. */
 .codecollab-remote-line-0 {
-    background: rgba(34, 211, 238, 0.10);
+    background-color: rgba(34, 211, 238, 0.07);
+    box-shadow: inset 3px 0 0 rgba(34, 211, 238, 0.85);
 }
-
 .codecollab-remote-line-1 {
-    background: rgba(249, 115, 22, 0.10);
+    background-color: rgba(249, 115, 22, 0.07);
+    box-shadow: inset 3px 0 0 rgba(249, 115, 22, 0.85);
 }
-
 .codecollab-remote-line-2 {
-    background: rgba(167, 139, 250, 0.10);
+    background-color: rgba(167, 139, 250, 0.07);
+    box-shadow: inset 3px 0 0 rgba(167, 139, 250, 0.85);
 }
-
 .codecollab-remote-line-3 {
-    background: rgba(74, 222, 128, 0.10);
+    background-color: rgba(74, 222, 128, 0.07);
+    box-shadow: inset 3px 0 0 rgba(74, 222, 128, 0.85);
 }
-
 .codecollab-remote-line-4 {
-    background: rgba(244, 114, 182, 0.10);
+    background-color: rgba(244, 114, 182, 0.07);
+    box-shadow: inset 3px 0 0 rgba(244, 114, 182, 0.85);
 }
-
 .codecollab-remote-line-5 {
-    background: rgba(250, 204, 21, 0.10);
+    background-color: rgba(250, 204, 21, 0.07);
+    box-shadow: inset 3px 0 0 rgba(250, 204, 21, 0.85);
 }
 
-/*
- * Keep the previous cursor rule compatible with any older
- * decoration that may still exist in the project.
- */
-.codecollab-remote-cursor::after {
-    content: "▋";
-    margin-left: 2px;
-    font-size: 22px;
-    font-weight: 900;
-    opacity: 0.95;
-}
-
-
-/* Visible user-name badge beside each remote cursor. */
+/* Compact collaborator name beside the remote cursor. */
 .codecollab-remote-label-0,
 .codecollab-remote-label-1,
 .codecollab-remote-label-2,
@@ -104,44 +67,31 @@
 .codecollab-remote-label-4,
 .codecollab-remote-label-5 {
     display: inline-block;
+    box-sizing: border-box;
     margin-left: 5px;
-    padding: 2px 7px;
-    border-radius: 5px;
-    font-size: 12px;
-    line-height: 18px;
-    font-weight: 800;
+    padding: 1px 5px;
+    border-radius: 4px;
+    font-size: 10px;
+    line-height: 15px;
+    font-weight: 600;
     white-space: nowrap;
     vertical-align: middle;
     pointer-events: none;
-    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.35);
+    opacity: 0.95;
 }
 
-.codecollab-remote-label-0 {
-    background: #0891b2;
-    color: #ecfeff;
-}
+.codecollab-remote-label-0 { background: #0e7490; color: #ecfeff; }
+.codecollab-remote-label-1 { background: #c2410c; color: #fff7ed; }
+.codecollab-remote-label-2 { background: #6d28d9; color: #f5f3ff; }
+.codecollab-remote-label-3 { background: #15803d; color: #f0fdf4; }
+.codecollab-remote-label-4 { background: #be185d; color: #fdf2f8; }
+.codecollab-remote-label-5 { background: #a16207; color: #fefce8; }
 
-.codecollab-remote-label-1 {
-    background: #ea580c;
-    color: #fff7ed;
-}
-
-.codecollab-remote-label-2 {
-    background: #7c3aed;
-    color: #f5f3ff;
-}
-
-.codecollab-remote-label-3 {
-    background: #16a34a;
-    color: #f0fdf4;
-}
-
-.codecollab-remote-label-4 {
-    background: #db2777;
-    color: #fdf2f8;
-}
-
-.codecollab-remote-label-5 {
-    background: #ca8a04;
-    color: #fefce8;
+/* Backward compatibility for any older cursor decoration. */
+.codecollab-remote-cursor::after {
+    content: "▋";
+    margin-left: 2px;
+    font-size: 16px;
+    font-weight: 600;
+    opacity: 0.85;
 }

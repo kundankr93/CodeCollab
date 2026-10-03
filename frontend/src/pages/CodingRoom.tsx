@@ -127,6 +127,7 @@ interface RoomFile {
 
 interface RemoteRoomFileCursor {
     roomId: string;
+    socketId: string;
     userId: string;
     userName: string;
     fileId: string;
@@ -544,8 +545,10 @@ int main() {
     const folderInputRef =
         useRef<HTMLInputElement | null>(null);
 
+    // Keep one debounce timer per file. Switching files must not cancel
+    // another file's pending save.
     const fileSaveTimeoutRef =
-        useRef<number | null>(null);
+        useRef<Map<string, number>>(new Map());
 
     const roomFileRemoteUpdateRef =
         useRef(false);
@@ -595,11 +598,10 @@ int main() {
 
     useEffect(() => {
         return () => {
-            if (fileSaveTimeoutRef.current !== null) {
-                window.clearTimeout(
-                    fileSaveTimeoutRef.current
-                );
-            }
+            fileSaveTimeoutRef.current.forEach(
+                (timeoutId) => window.clearTimeout(timeoutId)
+            );
+            fileSaveTimeoutRef.current.clear();
 
             if (
                 cursorEmitTimeoutRef.current !==
@@ -658,17 +660,18 @@ int main() {
                         activeFileId
                 )
                 .map((cursor) => {
-                    const safeLineNumber =
-                        Math.max(
-                            1,
-                            cursor.lineNumber
-                        );
-
-                    const safeColumn =
-                        Math.max(
-                            1,
-                            cursor.column
-                        );
+                    const model = editor.getModel();
+                    const lineCount = model?.getLineCount() ?? 1;
+                    const safeLineNumber = Math.min(
+                        Math.max(1, cursor.lineNumber),
+                        lineCount
+                    );
+                    const maxColumn =
+                        model?.getLineMaxColumn(safeLineNumber) ?? 1;
+                    const safeColumn = Math.min(
+                        Math.max(1, cursor.column),
+                        maxColumn
+                    );
 
                     /*
                      * Use a stable color class based on userId so
@@ -1467,37 +1470,26 @@ int main() {
                 const isActiveFile =
                     activeFile?._id === data.fileId;
 
-                const isDirty =
-                    roomFileDirtyRef.current.has(
-                        data.fileId
-                    );
-
                 /*
-                 * Do not overwrite text that this user is
-                 * currently editing.
+                 * Apply every accepted live preview to the active editor.
+                 * The previous dirty-check returned early whenever this
+                 * browser had typed before, which left collaborators showing
+                 * stale partial text (for example, "he" instead of "hello").
                  *
-                 * The remote update is still remembered as a
-                 * conflict. The HTTP save will compare versions
-                 * and retry the local change against the newer
-                 * server version.
-                 */
-                if (isDirty) {
-                    if (isActiveFile) {
-                        setFileConflict(
-                            "Another user changed this file. Your local changes are being synchronized."
-                        );
-                    }
-
-                    return;
-                }
-
-                /*
-                 * This is a clean local editor, so it is safe to
-                 * apply the remote change immediately.
+                 * CodeCollab currently uses whole-document, last-update-wins
+                 * synchronization. For predictable results, have one person
+                 * type in a file at a time while others follow. True concurrent
+                 * character-level merging requires an OT/CRDT implementation.
                  */
                 if (isActiveFile) {
                     roomFileRemoteUpdateRef.current = true;
                     setCode(data.code);
+
+                    // Reposition remote cursor decorations after Monaco has
+                    // applied the incoming model value.
+                    window.requestAnimationFrame(() => {
+                        refreshRemoteCursorDecorations();
+                    });
                 }
 
                 setRoomFiles((previous) =>
@@ -1581,8 +1573,9 @@ int main() {
                 if (
                     data.roomId !== roomId ||
                     !data.fileId ||
+                    !data.socketId ||
+                    data.socketId === connectedSocket.id ||
                     !data.userId ||
-                    data.userId === user.id ||
                     !Number.isInteger(
                         data.lineNumber
                     ) ||
@@ -1596,9 +1589,10 @@ int main() {
                 }
 
                 remoteCursorsRef.current.set(
-                    data.userId,
+                    data.socketId,
                     {
                         roomId: data.roomId,
+                        socketId: data.socketId,
                         userId:
                             data.userId,
                         userName:
@@ -1620,16 +1614,27 @@ int main() {
         connectedSocket.on(
             "room-file-user-left",
             (data: {
-                userId: string;
-                fileId: string;
+                socketId?: string;
+                userId?: string;
+                fileId?: string;
             }) => {
-                if (!data?.userId) {
+                if (data?.socketId) {
+                    remoteCursorsRef.current.delete(
+                        data.socketId
+                    );
+                } else if (data?.userId) {
+                    // Backward-compatible cleanup for older server events.
+                    for (const [key, cursor] of remoteCursorsRef.current) {
+                        if (
+                            cursor.userId === data.userId &&
+                            (!data.fileId || cursor.fileId === data.fileId)
+                        ) {
+                            remoteCursorsRef.current.delete(key);
+                        }
+                    }
+                } else {
                     return;
                 }
-
-                remoteCursorsRef.current.delete(
-                    data.userId
-                );
 
                 refreshRemoteCursorDecorations();
             }
@@ -1643,6 +1648,7 @@ int main() {
         connectedSocket.on(
             "room-file-user-joined",
             (data: {
+                socketId?: string;
                 userId: string;
                 fileId: string;
             }) => {
@@ -1653,42 +1659,15 @@ int main() {
                             activeFileNameRef.current
                     )?._id;
 
+                // A second tab/browser may belong to the same account.
+                // Compare socket IDs, not user IDs, to identify this client.
                 if (
-                    data?.userId &&
-                    data.userId !== user.id &&
-                    data.fileId ===
-                        currentActiveFileId
+                    data?.socketId &&
+                    data.socketId !== connectedSocket.id &&
+                    data.fileId === currentActiveFileId
                 ) {
                     window.setTimeout(() => {
-                        const editor =
-                            editorRef.current;
-
-                        const position =
-                            editor?.getPosition();
-
-                        if (
-                            !position ||
-                            !socketRef.current ||
-                            !roomId ||
-                            !user
-                        ) {
-                            return;
-                        }
-
-                        socketRef.current.emit(
-                            "room-file-cursor-change",
-                            {
-                                roomId,
-                                fileId:
-                                    currentActiveFileId,
-                                userId: user.id,
-                                userName: user.name,
-                                lineNumber:
-                                    position.lineNumber,
-                                column:
-                                    position.column,
-                            }
-                        );
+                        emitCurrentCursorPosition();
                     }, 20);
                 }
             }
@@ -2157,11 +2136,16 @@ const handleStartSession = async () => {
     }
 };
     const handleToggleInterviewMode = async () => {
-    if (!roomId || !user || !isOwner || !room || isCompleted) {
+    if (!roomId || !user || !isOwner || !room) {
         return;
     }
 
     const enabled = !room.interviewMode;
+
+    // Completed rooms may only turn interview mode OFF. They remain completed.
+    if (isCompleted && enabled) {
+        return;
+    }
 
     let durationMinutes = room.interviewDurationMinutes || 60;
 
@@ -2801,7 +2785,13 @@ const handleStartSession = async () => {
                 "Failed to load room file:",
                 fileError
             );
-            setCode("");
+
+            // A request for a previously selected file may fail after the
+            // user has already switched to another file. Do not clear that
+            // newer file's editor content.
+            if (activeFileNameRef.current === file.path) {
+                setCode("");
+            }
         }
     };
 
@@ -2821,8 +2811,7 @@ const handleStartSession = async () => {
         }) => {
             if (
                 data?.roomId !== roomId ||
-                !data.fileId ||
-                data.userId === user?.id
+                !data.fileId
             ) {
                 return;
             }
@@ -2951,18 +2940,18 @@ const handleStartSession = async () => {
             fileId &&
             roomId
         ) {
-            if (
-                fileSaveTimeoutRef.current !==
-                null
-            ) {
-                window.clearTimeout(
-                    fileSaveTimeoutRef.current
-                );
+            const pendingSaveTimeout =
+                fileSaveTimeoutRef.current.get(fileId);
+
+            if (pendingSaveTimeout !== undefined) {
+                window.clearTimeout(pendingSaveTimeout);
             }
 
-            fileSaveTimeoutRef.current =
-                window.setTimeout(
+            const saveTimeoutId = window.setTimeout(
                     async () => {
+                        // This file's debounce has fired. Other files keep
+                        // their own independent pending save timers.
+                        fileSaveTimeoutRef.current.delete(fileId);
                         /*
                          * Always read the latest local content and
                          * version when the debounce expires.
@@ -3170,6 +3159,11 @@ const handleStartSession = async () => {
                     },
                     600
                 );
+
+            fileSaveTimeoutRef.current.set(
+                fileId,
+                saveTimeoutId
+            );
 
             return;
         }
@@ -4004,16 +3998,25 @@ const handleStartSession = async () => {
     </div>
 )}
 
-{!isInterviewRoomRoute && isOwner && !isCompleted && (
-    <button
-        className="interview-mode-button"
-        onClick={handleToggleInterviewMode}
-    >
-        {room.interviewMode
-            ? "🎤 Interview: ON"
-            : "🎤 Interview: OFF"}
-    </button>
-)}
+{isOwner &&
+    ((!isCompleted && !isInterviewRoomRoute) ||
+        (isCompleted && room.interviewMode)) && (
+        <button
+            className="interview-mode-button"
+            onClick={handleToggleInterviewMode}
+            title={
+                isCompleted
+                    ? "Turn off interview mode while keeping this room completed"
+                    : "Toggle interview mode"
+            }
+        >
+            {isCompleted
+                ? "🎤 Turn Off Interview Mode"
+                : room.interviewMode
+                    ? "🎤 Interview: ON"
+                    : "🎤 Interview: OFF"}
+        </button>
+    )}
 
                     {isOwner && isWaiting && (
                         <button

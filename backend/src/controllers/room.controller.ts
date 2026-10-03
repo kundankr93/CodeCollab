@@ -653,6 +653,19 @@ export const toggleInterviewMode = async (
             return;
         }
 
+        if (
+            enabled &&
+            (!Number.isInteger(durationMinutes) ||
+                (durationMinutes as number) < 1 ||
+                (durationMinutes as number) > 240)
+        ) {
+            res.status(400).json({
+                success: false,
+                message: "Interview duration must be a whole number between 1 and 240 minutes",
+            });
+            return;
+        }
+
         const room = await Room.findOne({ roomId });
 
         if (!room) {
@@ -671,6 +684,65 @@ export const toggleInterviewMode = async (
             return;
         }
 
+        // A completed room stays completed. Its owner may only turn OFF
+        // interview mode; enabling it again requires reopening the room.
+        if (room.status === "completed") {
+            if (enabled) {
+                res.status(400).json({
+                    success: false,
+                    message: "Interview mode cannot be enabled on a completed room. Reopen the room first.",
+                });
+                return;
+            }
+
+            if (!room.interviewMode) {
+                res.status(200).json({
+                    success: true,
+                    message: "Interview mode is already disabled",
+                    interviewMode: false,
+                    interviewDurationMinutes: room.interviewDurationMinutes,
+                    interviewStartedAt: null,
+                });
+                return;
+            }
+
+            const disabledRoom = await Room.findOneAndUpdate(
+                {
+                    _id: room._id,
+                    roomId,
+                    owner: req.userId,
+                    status: "completed",
+                    interviewMode: true,
+                },
+                {
+                    $set: {
+                        interviewMode: false,
+                        interviewStartedAt: null,
+                    },
+                },
+                { new: true }
+            );
+
+            if (!disabledRoom) {
+                res.status(409).json({
+                    success: false,
+                    message: "Room changed while updating interview mode. Please refresh and try again.",
+                });
+                return;
+            }
+
+            res.status(200).json({
+                success: true,
+                message: "Interview mode disabled successfully. The room remains completed.",
+                interviewMode: disabledRoom.interviewMode,
+                interviewDurationMinutes: disabledRoom.interviewDurationMinutes,
+                interviewStartedAt: disabledRoom.interviewStartedAt,
+            });
+            return;
+        }
+
+        // Before a session starts, preserve the existing behavior: the owner
+        // can enable or disable interview mode only while the room is waiting.
         if (room.status !== "waiting") {
             res.status(400).json({
                 success: false,
@@ -679,32 +751,44 @@ export const toggleInterviewMode = async (
             return;
         }
 
-        if (
-            enabled &&
-            (!Number.isInteger(durationMinutes) ||
-                (durationMinutes as number) < 1 ||
-                (durationMinutes as number) > 240)
-        ) {
-            res.status(400).json({
+        const update: {
+            interviewMode: boolean;
+            interviewStartedAt: Date | null;
+            interviewDurationMinutes?: number;
+        } = {
+            interviewMode: enabled,
+            interviewStartedAt: null,
+        };
+
+        if (enabled) {
+            update.interviewDurationMinutes = durationMinutes as number;
+        }
+
+        const updatedRoom = await Room.findOneAndUpdate(
+            {
+                _id: room._id,
+                roomId,
+                owner: req.userId,
+                status: "waiting",
+            },
+            { $set: update },
+            { new: true }
+        );
+
+        if (!updatedRoom) {
+            res.status(409).json({
                 success: false,
-                message: "Interview duration must be a whole number between 1 and 240 minutes",
+                message: "Room changed while updating interview mode. Please refresh and try again.",
             });
             return;
         }
 
-        room.interviewMode = enabled;
-        if (enabled) {
-            room.interviewDurationMinutes = durationMinutes as number;
-        }
-        room.interviewStartedAt = null;
-        await room.save();
-
         res.status(200).json({
             success: true,
             message: "Interview mode updated successfully",
-            interviewMode: room.interviewMode,
-            interviewDurationMinutes: room.interviewDurationMinutes,
-            interviewStartedAt: room.interviewStartedAt,
+            interviewMode: updatedRoom.interviewMode,
+            interviewDurationMinutes: updatedRoom.interviewDurationMinutes,
+            interviewStartedAt: updatedRoom.interviewStartedAt,
         });
     } catch (error) {
         console.error("Toggle interview mode error ❌", error);

@@ -4,15 +4,9 @@ import {
     useEffect,
     useState,
 } from "react";
-
 import type { ReactNode } from "react";
 
 import api from "../api/axios";
-
-
-// ==========================================
-// USER ROLE
-// ==========================================
 
 export type UserRole =
     | "student"
@@ -20,268 +14,104 @@ export type UserRole =
     | "admin"
     | "owner";
 
-
-// ==========================================
-// USER
-// ==========================================
-
 export interface User {
     id: string;
     name: string;
     email: string;
     role: UserRole;
     avatar?: string;
+    createdAt?: string;
+    updatedAt?: string;
 }
-
-
-// ==========================================
-// AUTH CONTEXT TYPE
-// ==========================================
 
 interface AuthContextType {
     user: User | null;
-
     loading: boolean;
-
-    login: (
-        email: string,
-        password: string
-    ) => Promise<void>;
-
-    register: (
-        name: string,
-        email: string,
-        password: string
-    ) => Promise<void>;
-
+    login: (email: string, password: string) => Promise<void>;
+    register: (name: string, email: string, password: string) => Promise<void>;
     logout: () => Promise<void>;
+    updateUser: (updatedUser: User) => void;
 }
 
-
-// ==========================================
-// CONTEXT
-// ==========================================
-
-const AuthContext = createContext<
-    AuthContextType | undefined
->(undefined);
-
-
-// ==========================================
-// PROVIDER PROPS
-// ==========================================
+const AuthContext = createContext<AuthContextType | undefined>(undefined);
 
 interface AuthProviderProps {
     children: ReactNode;
 }
 
-
-// ==========================================
-// AUTH PROVIDER
-// ==========================================
-
-export const AuthProvider = ({
-    children,
-}: AuthProviderProps) => {
-
-    const [user, setUser] =
-        useState<User | null>(null);
-
-    const [loading, setLoading] =
-        useState(true);
-
-
-    // ==========================================
-    // LOAD CURRENT USER
-    // ==========================================
+export const AuthProvider = ({ children }: AuthProviderProps) => {
+    const [user, setUser] = useState<User | null>(null);
+    const [loading, setLoading] = useState(true);
 
     useEffect(() => {
-
         const loadUser = async () => {
+            const accessToken = localStorage.getItem("accessToken");
 
-            const accessToken =
-                localStorage.getItem(
-                    "accessToken"
-                );
-
-
-            // No access token
             if (!accessToken) {
-
                 setLoading(false);
-
                 return;
             }
 
-
             try {
-
-                const response =
-                    await api.get(
-                        "/users/me"
-                    );
-
-
-                setUser(
-                    response.data.user
-                );
-
+                const response = await api.get("/users/me");
+                setUser(response.data.user as User);
             } catch {
-
-                localStorage.removeItem(
-                    "accessToken"
-                );
-
-                localStorage.removeItem(
-                    "refreshToken"
-                );
-
+                localStorage.removeItem("accessToken");
+                localStorage.removeItem("refreshToken");
                 setUser(null);
-
             } finally {
-
                 setLoading(false);
-
             }
         };
 
-
-        loadUser();
-
+        void loadUser();
     }, []);
 
+    const login = async (email: string, password: string): Promise<void> => {
+        const response = await api.post("/auth/login", { email, password });
+        const { accessToken, refreshToken, user } = response.data;
 
-    // ==========================================
-    // LOGIN
-    // ==========================================
-
-    const login = async (
-        email: string,
-        password: string
-    ): Promise<void> => {
-
-        const response =
-            await api.post(
-                "/auth/login",
-                {
-                    email,
-                    password,
-                }
-            );
-
-
-        const {
-            accessToken,
-            refreshToken,
-            user,
-        } = response.data;
-
-
-        localStorage.setItem(
-            "accessToken",
-            accessToken
-        );
-
-        localStorage.setItem(
-            "refreshToken",
-            refreshToken
-        );
-
-
-        setUser(user);
+        localStorage.setItem("accessToken", accessToken);
+        localStorage.setItem("refreshToken", refreshToken);
+        setUser(user as User);
     };
-
-
-    // ==========================================
-    // REGISTER
-    // ==========================================
 
     const register = async (
         name: string,
         email: string,
         password: string
     ): Promise<void> => {
+        const response = await api.post("/auth/register", {
+            name,
+            email,
+            password,
+        });
+        const { accessToken, refreshToken, user } = response.data;
 
-        const response =
-            await api.post(
-                "/auth/register",
-                {
-                    name,
-                    email,
-                    password,
-                }
-            );
-
-
-        const {
-            accessToken,
-            refreshToken,
-            user,
-        } = response.data;
-
-
-        localStorage.setItem(
-            "accessToken",
-            accessToken
-        );
-
-        localStorage.setItem(
-            "refreshToken",
-            refreshToken
-        );
-
-
-        setUser(user);
+        localStorage.setItem("accessToken", accessToken);
+        localStorage.setItem("refreshToken", refreshToken);
+        setUser(user as User);
     };
 
-
-    // ==========================================
-    // LOGOUT
-    // ==========================================
-
     const logout = async (): Promise<void> => {
-
-        const refreshToken =
-            localStorage.getItem(
-                "refreshToken"
-            );
-
+        const refreshToken = localStorage.getItem("refreshToken");
 
         try {
-
             if (refreshToken) {
-
-                await api.post(
-                    "/auth/logout",
-                    {
-                        refreshToken,
-                    }
-                );
-
+                await api.post("/auth/logout", { refreshToken });
             }
-
         } catch {
-
-            // Ignore logout API errors
-
+            // Local logout must still complete if the API is unavailable.
         } finally {
-
-            localStorage.removeItem(
-                "accessToken"
-            );
-
-            localStorage.removeItem(
-                "refreshToken"
-            );
-
+            localStorage.removeItem("accessToken");
+            localStorage.removeItem("refreshToken");
             setUser(null);
         }
     };
 
-
-    // ==========================================
-    // PROVIDER
-    // ==========================================
+    const updateUser = (updatedUser: User): void => {
+        setUser(updatedUser);
+    };
 
     return (
         <AuthContext.Provider
@@ -291,6 +121,7 @@ export const AuthProvider = ({
                 login,
                 register,
                 logout,
+                updateUser,
             }}
         >
             {children}
@@ -298,25 +129,12 @@ export const AuthProvider = ({
     );
 };
 
-
-// ==========================================
-// USE AUTH HOOK
-// ==========================================
-
 export const useAuth = (): AuthContextType => {
-
-    const context =
-        useContext(AuthContext);
-
+    const context = useContext(AuthContext);
 
     if (!context) {
-
-        throw new Error(
-            "useAuth must be used inside AuthProvider"
-        );
-
+        throw new Error("useAuth must be used inside AuthProvider");
     }
-
 
     return context;
 };

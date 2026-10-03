@@ -379,17 +379,13 @@ const Dashboard = () => {
 
                     <button
                         className="nav-item"
-                        disabled
+                        onClick={() => navigate("/settings")}
                     >
                         <SettingsIcon />
 
                         <span>
                             Settings
                         </span>
-
-                        <small>
-                            Soon
-                        </small>
                     </button>
 
 
