@@ -185,6 +185,10 @@ export const login = async (
                 email: normalizedEmail,
             });
 
+            console.log("LOGIN DEBUG:", {
+    userFound: !!user,
+});
+
         if (!user) {
             res.status(401).json({
                 success: false,
@@ -201,6 +205,10 @@ export const login = async (
                 password,
                 user.password
             );
+
+            console.log("PASSWORD DEBUG:", {
+    passwordMatched: isPasswordCorrect,
+});
 
         if (!isPasswordCorrect) {
             res.status(401).json({
