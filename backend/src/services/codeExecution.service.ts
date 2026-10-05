@@ -114,7 +114,7 @@ export const executeCode = async (
         const deadline = Date.now() + EXECUTION_TIMEOUT;
 
         while (Date.now() < deadline) {
-            await sleep(1000);
+            await sleep(500);
 
             const resultResponse = await fetch(
                 `${JUDGE0_URL}/submissions/${submitData.token}?base64_encoded=false`,
